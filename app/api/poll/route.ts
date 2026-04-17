@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 
@@ -90,6 +91,15 @@ async function getLiveChatMessages(liveChatId: string, nextPageToken?: string) {
 
 export async function POST(request: NextRequest) {
   try {
+    const authClient = await createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await authClient.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
     if (!youtubeApiKey) {
       return NextResponse.json(
         { error: "Missing YOUTUBE_API_KEY." },
@@ -132,6 +142,7 @@ export async function POST(request: NextRequest) {
       const fansByYtId = new Map<
         string,
         {
+          owner_user_id: string;
           yt_id: string;
           name: string | null;
         }
@@ -139,6 +150,7 @@ export async function POST(request: NextRequest) {
 
       for (const message of messages) {
         fansByYtId.set(message.fanId, {
+          owner_user_id: user.id,
           yt_id: message.fanId,
           name: message.name,
         });
@@ -148,7 +160,7 @@ export async function POST(request: NextRequest) {
 
       const { data: upsertedFans, error: fansError } = await supabase
         .from("fans")
-        .upsert(fans, { onConflict: "yt_id" })
+        .upsert(fans, { onConflict: "owner_user_id,yt_id" })
         .select("id, yt_id");
 
       if (fansError) {
@@ -160,6 +172,7 @@ export async function POST(request: NextRequest) {
       );
 
       const dbMessages = messages.map((message) => ({
+        owner_user_id: user.id,
         yt_id: message.ytId,
         yt_video_id: videoId,
         fan_id: fanIdsByYtId.get(message.fanId),
@@ -170,7 +183,7 @@ export async function POST(request: NextRequest) {
 
       const { error: messagesError } = await supabase
         .from("messages")
-        .upsert(dbMessages, { onConflict: "yt_id" });
+        .upsert(dbMessages, { onConflict: "owner_user_id,yt_id" });
 
       if (messagesError) {
         throw messagesError;

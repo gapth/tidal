@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { BrandLink } from "@/components/brand-link";
+import { SignOutButton } from "@/components/sign-out-button";
 
 type Message = {
   ytId: string;
@@ -170,6 +171,7 @@ export default function HomePage() {
                 The browser owns the polling loop, so each request stays short
                 and avoids long-running serverless execution.
               </p>
+              <SignOutButton />
             </div>
 
             <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-5 py-4">

@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { BrandLink } from "@/components/brand-link";
+import { SignOutButton } from "@/components/sign-out-button";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabaseServerClient } from "@/lib/supabase-server";
 
 type FanRow = {
@@ -37,12 +40,28 @@ function formatTimestamp(value: string | null) {
 }
 
 export default async function FansPage() {
+  const authClient = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await authClient.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
   const supabase = getSupabaseServerClient();
 
   const [{ data: fans, error: fansError }, { data: messages, error: messagesError }] =
     await Promise.all([
-      supabase.from("fans").select("id, yt_id, name").order("name", { ascending: true }),
-      supabase.from("messages").select("fan_id, yt_video_id, time"),
+      supabase
+        .from("fans")
+        .select("id, yt_id, name")
+        .eq("owner_user_id", user.id)
+        .order("name", { ascending: true }),
+      supabase
+        .from("messages")
+        .select("fan_id, yt_video_id, time")
+        .eq("owner_user_id", user.id),
     ]);
 
   if (fansError) {
@@ -105,12 +124,15 @@ export default async function FansPage() {
               <p className="max-w-2xl text-sm text-slate-400">
                 Overview of fan activity across tracked YouTube live chats.
               </p>
-              <Link
-                className="inline-flex rounded-full border border-cyan-400/30 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.18em] text-cyan-200 transition hover:border-cyan-300 hover:text-white"
-                href="/"
-              >
-                Back To Tracker
-              </Link>
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  className="inline-flex rounded-full border border-cyan-400/30 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.18em] text-cyan-200 transition hover:border-cyan-300 hover:text-white"
+                  href="/"
+                >
+                  Back To Tracker
+                </Link>
+                <SignOutButton />
+              </div>
             </div>
 
             <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-5 py-4">
