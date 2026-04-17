@@ -3,35 +3,17 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  getCookieValue,
+  clearCookie,
+  getSafeNext,
+  POST_LOGIN_COOKIE_NAME,
+} from "@/lib/browser-utils";
 
 type AuthCallbackHandlerProps = {
   code: string | null;
   next: string | null;
 };
-
-function getSafeNext(next: string | null) {
-  if (!next || !next.startsWith("/")) {
-    return "/";
-  }
-
-  return next;
-}
-
-function getCookieValue(name: string) {
-  const cookiePrefix = `${name}=`;
-
-  for (const cookie of document.cookie.split("; ")) {
-    if (cookie.startsWith(cookiePrefix)) {
-      return decodeURIComponent(cookie.slice(cookiePrefix.length));
-    }
-  }
-
-  return null;
-}
-
-function clearCookie(name: string) {
-  document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
-}
 
 export function AuthCallbackHandler({
   code,
@@ -44,7 +26,7 @@ export function AuthCallbackHandler({
     let cancelled = false;
 
     const exchangeCode = async () => {
-      const nextFromCookie = getCookieValue("tidal-post-login-path");
+      const nextFromCookie = getCookieValue(POST_LOGIN_COOKIE_NAME);
       const safeNext = getSafeNext(next ?? nextFromCookie);
 
       if (!code) {
@@ -55,7 +37,7 @@ export function AuthCallbackHandler({
       const supabase = createSupabaseBrowserClient();
       const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-      clearCookie("tidal-post-login-path");
+      clearCookie(POST_LOGIN_COOKIE_NAME);
 
       if (cancelled) {
         return;

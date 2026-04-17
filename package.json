@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
@@ -15,15 +17,22 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
+  "optionalDependencies": {
+    "@rolldown/binding-darwin-arm64": "^1.0.0-rc.16"
+  },
   "devDependencies": {
     "@types/node": "^22.14.1",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
+    "@vitest/browser": "^4.1.4",
     "autoprefixer": "^10.4.21",
     "eslint": "^9.25.0",
     "eslint-config-next": "^15.3.1",
+    "happy-dom": "^20.9.0",
+    "jsdom": "^29.0.2",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.4"
   }
 }

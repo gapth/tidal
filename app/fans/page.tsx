@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { BrandLink } from "@/components/brand-link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { formatTimestamp, parsePageNumber } from "@/lib/utils";
+import { aggregateMessageStatsByFanId } from "@/lib/fan-stats";
 
 type FanRow = {
   id: string;
@@ -34,27 +36,6 @@ type FansPageProps = {
 export const dynamic = "force-dynamic";
 const FANS_PER_PAGE = 20;
 
-function formatTimestamp(value: string | null) {
-  if (!value) {
-    return "No messages yet";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function parsePageNumber(value: string | undefined) {
-  const parsedValue = Number.parseInt(value ?? "1", 10);
-
-  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
-    return 1;
-  }
-
-  return parsedValue;
-}
-
 function buildPageHref(page: number) {
   return page === 1 ? "/fans" : `/fans?page=${page}`;
 }
@@ -78,9 +59,7 @@ export default async function FansPage({ searchParams }: FansPageProps) {
     { count: totalFansCount, error: countError },
     { data: fans, error: fansError },
   ] = await Promise.all([
-    supabase
-      .from("fans")
-      .select("id", { count: "exact", head: true }),
+    supabase.from("fans").select("id", { count: "exact", head: true }),
     supabase
       .from("fans")
       .select("id, yt_id, name")
@@ -117,35 +96,12 @@ export default async function FansPage({ searchParams }: FansPageProps) {
     throw new Error(messagesError.message);
   }
 
-  const messageStatsByFanId = new Map<
-    string,
-    {
-      videos: Set<string>;
-      messagesCount: number;
-      latestMessageTime: string | null;
-    }
-  >();
-
-  for (const message of (messages ?? []) as MessageRow[]) {
-    const current = messageStatsByFanId.get(message.fan_id) ?? {
-      videos: new Set<string>(),
-      messagesCount: 0,
-      latestMessageTime: null,
-    };
-
-    current.videos.add(message.yt_video_id);
-    current.messagesCount += 1;
-
-    if (!current.latestMessageTime || message.time > current.latestMessageTime) {
-      current.latestMessageTime = message.time;
-    }
-
-    messageStatsByFanId.set(message.fan_id, current);
-  }
+  const statsByFanId = aggregateMessageStatsByFanId(
+    (messages ?? []) as MessageRow[],
+  );
 
   const fanSummaries = pagedFans.map((fan) => {
-    const stats = messageStatsByFanId.get(fan.id);
-
+    const stats = statsByFanId.get(fan.id);
     return {
       id: fan.id,
       ytId: fan.yt_id,
@@ -158,6 +114,7 @@ export default async function FansPage({ searchParams }: FansPageProps) {
 
   const hasPreviousPage = currentPage > 1;
   const hasNextPage = currentPage < totalPages;
+  // Show "0" when empty, otherwise 1-indexed for human readability.
   const pageLabelStart = totalTrackedFans === 0 ? 0 : pageStart + 1;
   const pageLabelEnd = Math.min(pageStart + fanSummaries.length, totalTrackedFans);
 

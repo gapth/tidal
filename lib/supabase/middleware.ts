@@ -1,6 +1,24 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+function isAuthRoute(pathname: string): boolean {
+  return pathname.startsWith("/login") || pathname.startsWith("/auth");
+}
+
+function buildLoginRedirect(request: NextRequest, pathname: string): NextResponse {
+  const loginUrl = request.nextUrl.clone();
+  loginUrl.pathname = "/login";
+  loginUrl.searchParams.set("next", pathname);
+  return NextResponse.redirect(loginUrl);
+}
+
+function buildHomeRedirect(request: NextRequest): NextResponse {
+  const homeUrl = request.nextUrl.clone();
+  homeUrl.pathname = "/";
+  homeUrl.search = "";
+  return NextResponse.redirect(homeUrl);
+}
+
 export async function updateSession(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabasePublishableKey =
@@ -34,20 +52,13 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
-  const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/auth");
 
-  if (!user && !isAuthPage) {
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/login";
-    loginUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(loginUrl);
+  if (!user && !isAuthRoute(pathname)) {
+    return buildLoginRedirect(request, pathname);
   }
 
   if (user && pathname === "/login") {
-    const homeUrl = request.nextUrl.clone();
-    homeUrl.pathname = "/";
-    homeUrl.search = "";
-    return NextResponse.redirect(homeUrl);
+    return buildHomeRedirect(request);
   }
 
   return response;

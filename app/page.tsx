@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { BrandLink } from "@/components/brand-link";
 import { SignOutButton } from "@/components/sign-out-button";
+import { normalizeInterval } from "@/lib/utils";
 
 type Message = {
   ytId: string;
@@ -59,16 +60,15 @@ export default function HomePage() {
       }
     };
 
+    // When not tracking, do a one-time fan count refresh then exit.
     if (!isTracking) {
       void fetchFansCount();
       return () => {
         cancelled = true;
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
       };
     }
 
+    // Recursive polling loop: fetch new chat messages, upsert to DB, then schedule the next tick.
     const poll = async () => {
       try {
         const response = await fetch("/api/poll", {
@@ -92,12 +92,10 @@ export default function HomePage() {
 
         nextPageTokenRef.current = data.nextPageToken ?? null;
         setMessages((current) => {
-          const knownIds = new Set(current.map((message) => message.ytId));
-          const incoming = data.messages.filter(
-            (message) => !knownIds.has(message.ytId),
-          );
-
-          return [...incoming, ...current].slice(0, 250);
+          const knownIds = new Set(current.map((m) => m.ytId));
+          const newMessages = data.messages.filter((m) => !knownIds.has(m.ytId));
+          // Prepend new messages and cap at 250 to avoid unbounded memory growth.
+          return [...newMessages, ...current].slice(0, 250);
         });
         setError(null);
         await fetchFansCount();
@@ -136,25 +134,10 @@ export default function HomePage() {
     setIsTracking((current) => !current);
   };
 
-  const renderDisplayName = (name: string | null) => {
-    return name?.trim() || "Anonymous Fan";
-  };
-
   const commitIntervalInput = (value: string) => {
-    const trimmedValue = value.trim();
-
-    if (!trimmedValue) {
-      setIntervalInput(String(intervalSeconds));
-      return;
-    }
-
-    const parsedValue = Number(trimmedValue);
-    const nextInterval = Number.isFinite(parsedValue)
-      ? Math.max(1, Math.round(parsedValue))
-      : intervalSeconds;
-
-    setIntervalSeconds(nextInterval);
-    setIntervalInput(String(nextInterval));
+    const next = normalizeInterval(value, intervalSeconds);
+    setIntervalSeconds(next);
+    setIntervalInput(String(next));
   };
 
   return (
@@ -263,12 +246,14 @@ export default function HomePage() {
                     className="flex gap-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4"
                   >
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-xs font-semibold text-cyan-300">
-                      {renderDisplayName(message.name).slice(0, 2).toUpperCase()}
+                      {(message.name?.trim() || "Anonymous Fan")
+                        .slice(0, 2)
+                        .toUpperCase()}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-3">
                         <p className="truncate text-sm font-medium text-white">
-                          {renderDisplayName(message.name)}
+                          {message.name?.trim() || "Anonymous Fan"}
                         </p>
                         <time className="shrink-0 text-xs text-slate-500">
                           {new Date(message.time).toLocaleTimeString()}

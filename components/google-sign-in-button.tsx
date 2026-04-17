@@ -1,6 +1,10 @@
 "use client";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  POST_LOGIN_COOKIE_NAME,
+  POST_LOGIN_COOKIE_MAX_AGE,
+} from "@/lib/browser-utils";
 
 type GoogleSignInButtonProps = {
   next?: string;
@@ -9,7 +13,7 @@ type GoogleSignInButtonProps = {
 export function GoogleSignInButton({ next = "/" }: GoogleSignInButtonProps) {
   const handleSignIn = async () => {
     const supabase = createSupabaseBrowserClient();
-    document.cookie = `tidal-post-login-path=${encodeURIComponent(next)}; Path=/; Max-Age=600; SameSite=Lax`;
+    document.cookie = `${POST_LOGIN_COOKIE_NAME}=${encodeURIComponent(next)}; Path=/; Max-Age=${POST_LOGIN_COOKIE_MAX_AGE}; SameSite=Lax`;
     const redirectTo = new URL("/auth/callback", window.location.origin);
 
     await supabase.auth.signInWithOAuth({
