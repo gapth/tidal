@@ -26,7 +26,14 @@ type FanSummary = {
   latestMessageTime: string | null;
 };
 
+type FansPageProps = {
+  searchParams: Promise<{
+    page?: string;
+  }>;
+};
+
 export const dynamic = "force-dynamic";
+const FANS_PER_PAGE = 20;
 
 function formatTimestamp(value: string | null) {
   if (!value) {
@@ -39,7 +46,21 @@ function formatTimestamp(value: string | null) {
   }).format(new Date(value));
 }
 
-export default async function FansPage() {
+function parsePageNumber(value: string | undefined) {
+  const parsedValue = Number.parseInt(value ?? "1", 10);
+
+  if (!Number.isFinite(parsedValue) || parsedValue < 1) {
+    return 1;
+  }
+
+  return parsedValue;
+}
+
+function buildPageHref(page: number) {
+  return page === 1 ? "/fans" : `/fans?page=${page}`;
+}
+
+export default async function FansPage({ searchParams }: FansPageProps) {
   const authClient = await createSupabaseServerClient();
   const {
     data: { user },
@@ -50,23 +71,52 @@ export default async function FansPage() {
   }
 
   const supabase = getSupabaseServerClient();
+  const resolvedSearchParams = await searchParams;
+  const currentPage = parsePageNumber(resolvedSearchParams.page);
+  const pageStart = (currentPage - 1) * FANS_PER_PAGE;
+  const pageEnd = pageStart + FANS_PER_PAGE - 1;
 
-  const [{ data: fans, error: fansError }, { data: messages, error: messagesError }] =
-    await Promise.all([
-      supabase
-        .from("fans")
-        .select("id, yt_id, name")
-        .eq("owner_user_id", user.id)
-        .order("name", { ascending: true }),
-      supabase
-        .from("messages")
-        .select("fan_id, yt_video_id, time")
-        .eq("owner_user_id", user.id),
-    ]);
+  const [
+    { count: totalFansCount, error: countError },
+    { data: fans, error: fansError },
+  ] = await Promise.all([
+    supabase
+      .from("fans")
+      .select("id", { count: "exact", head: true })
+      .eq("owner_user_id", user.id),
+    supabase
+      .from("fans")
+      .select("id, yt_id, name")
+      .eq("owner_user_id", user.id)
+      .order("name", { ascending: true })
+      .order("yt_id", { ascending: true })
+      .range(pageStart, pageEnd),
+  ]);
+
+  if (countError) {
+    throw new Error(countError.message);
+  }
 
   if (fansError) {
     throw new Error(fansError.message);
   }
+
+  const pagedFans = (fans ?? []) as FanRow[];
+  const totalTrackedFans = totalFansCount ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalTrackedFans / FANS_PER_PAGE));
+
+  if (totalTrackedFans > 0 && currentPage > totalPages) {
+    redirect(buildPageHref(totalPages));
+  }
+
+  const fanIds = pagedFans.map((fan) => fan.id);
+  const { data: messages, error: messagesError } = fanIds.length
+    ? await supabase
+        .from("messages")
+        .select("fan_id, yt_video_id, time")
+        .eq("owner_user_id", user.id)
+        .in("fan_id", fanIds)
+    : { data: [], error: null };
 
   if (messagesError) {
     throw new Error(messagesError.message);
@@ -98,7 +148,7 @@ export default async function FansPage() {
     messageStatsByFanId.set(message.fan_id, current);
   }
 
-  const fanSummaries = ((fans ?? []) as FanRow[]).map((fan) => {
+  const fanSummaries = pagedFans.map((fan) => {
     const stats = messageStatsByFanId.get(fan.id);
 
     return {
@@ -110,6 +160,11 @@ export default async function FansPage() {
       latestMessageTime: stats?.latestMessageTime ?? null,
     } satisfies FanSummary;
   });
+
+  const hasPreviousPage = currentPage > 1;
+  const hasNextPage = currentPage < totalPages;
+  const pageLabelStart = totalTrackedFans === 0 ? 0 : pageStart + 1;
+  const pageLabelEnd = Math.min(pageStart + fanSummaries.length, totalTrackedFans);
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
@@ -140,7 +195,7 @@ export default async function FansPage() {
                 Total Tracked Fans
               </p>
               <p className="mt-2 text-3xl font-semibold text-white">
-                {fanSummaries.length}
+                {totalTrackedFans}
               </p>
             </div>
           </div>
@@ -167,6 +222,15 @@ export default async function FansPage() {
               <h2 className="text-xl font-semibold text-white">Fan Table</h2>
               <p className="mt-1 text-sm text-slate-400">
                 Fan identity and chat activity across tracked videos.
+              </p>
+            </div>
+            <div className="text-right text-sm text-slate-400">
+              <p>
+                Showing {pageLabelStart}-{pageLabelEnd} of {totalTrackedFans}
+              </p>
+              <p>
+                Page {totalTrackedFans === 0 ? 0 : currentPage} of{" "}
+                {totalTrackedFans === 0 ? 0 : totalPages}
               </p>
             </div>
           </div>
@@ -225,6 +289,38 @@ export default async function FansPage() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-4 border-t border-slate-800 pt-4">
+            <div className="text-sm text-slate-500">
+              {FANS_PER_PAGE} fans per page
+            </div>
+            <div className="flex items-center gap-3">
+              {hasPreviousPage ? (
+                <Link
+                  className="inline-flex rounded-full border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
+                  href={buildPageHref(currentPage - 1)}
+                >
+                  Previous
+                </Link>
+              ) : (
+                <span className="inline-flex rounded-full border border-slate-800 px-4 py-2 text-sm font-medium text-slate-600">
+                  Previous
+                </span>
+              )}
+              {hasNextPage ? (
+                <Link
+                  className="inline-flex rounded-full border border-cyan-400/30 px-4 py-2 text-sm font-medium text-cyan-200 transition hover:border-cyan-300 hover:text-white"
+                  href={buildPageHref(currentPage + 1)}
+                >
+                  Next
+                </Link>
+              ) : (
+                <span className="inline-flex rounded-full border border-slate-800 px-4 py-2 text-sm font-medium text-slate-600">
+                  Next
+                </span>
+              )}
+            </div>
           </div>
         </section>
       </div>
