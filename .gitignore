@@ -32,3 +32,6 @@ pnpm-debug.log*
 
 # local supabase seed data
 supabase/seed.sql
+
+.vscode/
+.claude/
