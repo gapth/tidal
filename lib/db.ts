@@ -41,6 +41,9 @@ export async function upsertFansAndMessages(
       fan_id: fanIdByYtId.get(message.fanId),
       text: message.text,
       time: message.time,
+      paid_event_type: message.paidEventType,
+      paid_amount_micros: message.paidAmountMicros,
+      paid_currency: message.paidCurrency,
     }))
     .filter((message) => message.fan_id);
 

@@ -13,8 +13,31 @@ export type YouTubeChatResponse = {
   items?: Array<{
     id: string;
     snippet?: {
+      type?: string;
       displayMessage?: string;
       publishedAt?: string;
+      superChatDetails?: {
+        amountMicros?: string; // YouTube returns this as a string
+        currency?: string;
+        amountDisplayString?: string;
+        userComment?: string;
+      };
+      superStickerDetails?: {
+        amountMicros?: string; // YouTube returns this as a string
+        currency?: string;
+        amountDisplayString?: string;
+      };
+      membershipGiftingDetails?: {
+        giftMembershipsCount?: number;
+        giftMembershipsLevelName?: string;
+      };
+      giftDetails?: {
+        jewelsAmount?: number;
+      };
+      newSponsorDetails?: {
+        memberLevelName?: string;
+        isUpgrade?: boolean;
+      };
     };
     authorDetails?: {
       channelId?: string;
@@ -29,7 +52,57 @@ export type NormalizedMessage = {
   name: string | null;
   text: string | null;
   time: string;
+  paidEventType: string | null;
+  paidAmountMicros: number | null;
+  paidCurrency: string | null;
 };
+
+type ChatItem = NonNullable<YouTubeChatResponse["items"]>[0];
+
+const PAID_EVENT_TYPES = new Set([
+  "superChatEvent",
+  "superStickerEvent",
+  "membershipGiftingEvent",
+  "giftEvent",
+  "newSponsorEvent",
+]);
+
+function extractPaidDetails(item: ChatItem): Pick<
+  NormalizedMessage,
+  "paidEventType" | "paidAmountMicros" | "paidCurrency"
+> {
+  const type = item.snippet?.type;
+
+  if (!type || !PAID_EVENT_TYPES.has(type)) {
+    return { paidEventType: null, paidAmountMicros: null, paidCurrency: null };
+  }
+
+  // superChatEvent and superStickerEvent carry amountMicros + currency directly.
+  const monetaryDetails =
+    item.snippet?.superChatDetails ?? item.snippet?.superStickerDetails;
+  if (monetaryDetails) {
+    return {
+      paidEventType: type,
+      paidAmountMicros: monetaryDetails.amountMicros
+        ? Number(monetaryDetails.amountMicros)
+        : null,
+      paidCurrency: monetaryDetails.currency ?? null,
+    };
+  }
+
+  // giftEvent uses YouTube Jewels; normalise to micros with a synthetic "JWL" currency.
+  if (type === "giftEvent") {
+    const jewels = item.snippet?.giftDetails?.jewelsAmount;
+    return {
+      paidEventType: type,
+      paidAmountMicros: jewels != null ? jewels * 1_000_000 : null,
+      paidCurrency: "JWL",
+    };
+  }
+
+  // membershipGiftingEvent, newSponsorEvent — paid but no monetary amount exposed.
+  return { paidEventType: type, paidAmountMicros: null, paidCurrency: null };
+}
 
 export async function getActiveLiveChatId(
   videoId: string,
@@ -91,6 +164,7 @@ export function normalizeRawMessages(
       name: item.authorDetails?.displayName ?? null,
       text: item.snippet?.displayMessage ?? null,
       time: item.snippet?.publishedAt ?? new Date().toISOString(),
+      ...extractPaidDetails(item),
     }))
     .filter((m) => m.fanId && m.ytId);
 }
