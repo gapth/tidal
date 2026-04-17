@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { BrandLink } from "@/components/brand-link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getSupabaseServerClient } from "@/lib/supabase-server";
 
 type FanRow = {
   id: string;
@@ -61,16 +60,15 @@ function buildPageHref(page: number) {
 }
 
 export default async function FansPage({ searchParams }: FansPageProps) {
-  const authClient = await createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
-  } = await authClient.auth.getUser();
+  } = await supabase.auth.getUser();
 
   if (!user) {
     redirect("/login");
   }
 
-  const supabase = getSupabaseServerClient();
   const resolvedSearchParams = await searchParams;
   const currentPage = parsePageNumber(resolvedSearchParams.page);
   const pageStart = (currentPage - 1) * FANS_PER_PAGE;
@@ -82,12 +80,10 @@ export default async function FansPage({ searchParams }: FansPageProps) {
   ] = await Promise.all([
     supabase
       .from("fans")
-      .select("id", { count: "exact", head: true })
-      .eq("owner_user_id", user.id),
+      .select("id", { count: "exact", head: true }),
     supabase
       .from("fans")
       .select("id, yt_id, name")
-      .eq("owner_user_id", user.id)
       .order("name", { ascending: true })
       .order("yt_id", { ascending: true })
       .range(pageStart, pageEnd),
@@ -114,7 +110,6 @@ export default async function FansPage({ searchParams }: FansPageProps) {
     ? await supabase
         .from("messages")
         .select("fan_id, yt_video_id, time")
-        .eq("owner_user_id", user.id)
         .in("fan_id", fanIds)
     : { data: [], error: null };
 

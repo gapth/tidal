@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
@@ -27,19 +26,7 @@ type YouTubeChatResponse = {
   }>;
 };
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const youtubeApiKey = process.env.YOUTUBE_API_KEY;
-
-function getSupabase() {
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    throw new Error("Missing Supabase server environment variables.");
-  }
-
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: { persistSession: false },
-  });
-}
 
 async function getActiveLiveChatId(videoId: string) {
   const url = new URL(`${YOUTUBE_API_BASE}/videos`);
@@ -91,10 +78,10 @@ async function getLiveChatMessages(liveChatId: string, nextPageToken?: string) {
 
 export async function POST(request: NextRequest) {
   try {
-    const authClient = await createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const {
       data: { user },
-    } = await authClient.auth.getUser();
+    } = await supabase.auth.getUser();
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -135,8 +122,6 @@ export async function POST(request: NextRequest) {
         time: item.snippet?.publishedAt ?? new Date().toISOString(),
       }))
       .filter((message) => message.fanId && message.ytId);
-
-    const supabase = getSupabase();
 
     if (messages.length > 0) {
       const fansByYtId = new Map<

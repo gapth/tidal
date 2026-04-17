@@ -1,23 +1,20 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServerClient } from "@/lib/supabase-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET() {
   try {
-    const authClient = await createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const {
       data: { user },
-    } = await authClient.auth.getUser();
+    } = await supabase.auth.getUser();
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    const supabase = getSupabaseServerClient();
     const { count, error } = await supabase
       .from("fans")
-      .select("id", { count: "exact", head: true })
-      .eq("owner_user_id", user.id);
+      .select("id", { count: "exact", head: true });
 
     if (error) {
       throw error;
