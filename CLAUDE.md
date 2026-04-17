@@ -10,6 +10,8 @@ npm run build    # Production build
 npm run lint     # ESLint
 npm test         # Run tests (vitest)
 npm run test:watch  # Vitest in watch mode
+npm run ingest -- <youtube_url>  # Ingest live chat (loads .env)
+npx tsx --env-file=.env.local scripts/ingest.ts <youtube_url>  # Ingest using .env.local
 ```
 
 **Supabase local dev:**
@@ -55,12 +57,27 @@ Unique constraint `(owner_user_id, yt_id)` on both tables enables upsert-based i
 
 ### Supabase Client Usage
 
-Two client factories in `lib/supabase/`:
+Three client factories in `lib/supabase/`:
 - `client.ts` → `createSupabaseBrowserClient()` — for client components
 - `server.ts` → `createSupabaseServerClient()` — for server components and API routes (uses `cookies()`)
+- `admin.ts` → `createSupabaseAdminClient()` — service-role key, bypasses RLS; **scripts and admin routes only, never import from app routes or components**
 
 Always use the server client in API routes and server components. RLS enforces per-user data isolation automatically with either client.
 
 ### Migrations
 
 Migration files live in `supabase/migrations/`. Naming convention: `YYYYMMDDHHMMSS_description.sql`. Run `supabase db reset` to replay all migrations locally.
+
+## Current Phase
+
+**Phase 0 — Foundations** (see `docs/PRD.md §9`)
+
+**Goal:** Ingest ≥10K real chat messages across ≥3 broadcasts without any user signing in.
+
+**Exit criterion:** `SELECT COUNT(*), yt_video_id FROM messages GROUP BY yt_video_id` shows ≥10K rows across ≥3 distinct video IDs.
+
+**Ingest setup:**
+1. Sign in once via the web app to create your user account
+2. Copy your UUID from Supabase dashboard → Authentication → Users
+3. Add to `.env`: `INGEST_OWNER_USER_ID=<your-uuid>`
+4. Point at a live stream: `npm run ingest -- https://www.youtube.com/watch?v=<ID>`
