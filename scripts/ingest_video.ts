@@ -1,29 +1,23 @@
 /**
- * Usage: npm run ingest -- <youtube_url_or_video_id>
+ * Ingests live chat for a specific YouTube video/broadcast.
  *
- * Required env vars (loaded from .env by the npm script):
- *   YOUTUBE_API_KEY
- *   SUPABASE_URL
- *   SUPABASE_SERVICE_ROLE_KEY
- *   INGEST_OWNER_USER_ID  — a UUID from Supabase Auth > Users
+ * Usage:
+ *   npx tsx --env-file=.env.local scripts/ingest_video.ts <youtube_url_or_video_id>
+ *
+ * Required env vars:
+ *   YOUTUBE_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, INGEST_OWNER_USER_ID
  */
 
-import {
-  getActiveLiveChatId,
-  getLiveChatMessages,
-  normalizeRawMessages,
-  type YouTubeChatResponse,
-} from "@/lib/youtube";
-import { upsertFansAndMessages } from "@/lib/db";
+import { getActiveLiveChatId } from "@/lib/youtube";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { pollBroadcastUntilEnd, timestamp } from "./_poll";
 
-// YouTube returns pollingIntervalMillis but it's not in our shared type.
-type ChatResponseWithPolling = YouTubeChatResponse & {
-  pollingIntervalMillis?: number;
-};
-
-const DEFAULT_POLL_INTERVAL_MS = 10_000;
-const ERROR_BACKOFF_MS = 15_000;
+const REQUIRED_VARS = [
+  "YOUTUBE_API_KEY",
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "INGEST_OWNER_USER_ID",
+];
 
 function extractVideoId(input: string): string {
   // Raw 11-character video ID (YouTube IDs are always 11 chars of [A-Za-z0-9_-])
@@ -63,30 +57,17 @@ function extractVideoId(input: string): string {
   );
 }
 
-function timestamp(): string {
-  return new Date().toLocaleTimeString();
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function main() {
   const rawInput = process.argv[2];
 
   if (!rawInput) {
-    console.error("Usage: npm run ingest -- <youtube_url_or_video_id>");
+    console.error(
+      "Usage: npx tsx --env-file=.env.local scripts/ingest_video.ts <youtube_url_or_video_id>",
+    );
     process.exit(1);
   }
 
-  // Validate required env vars before doing anything else.
-  const requiredVars = [
-    "YOUTUBE_API_KEY",
-    "SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "INGEST_OWNER_USER_ID",
-  ];
-  for (const varName of requiredVars) {
+  for (const varName of REQUIRED_VARS) {
     if (!process.env[varName]) {
       console.error(`Missing required env var: ${varName}`);
       if (varName === "INGEST_OWNER_USER_ID") {
@@ -134,49 +115,14 @@ async function main() {
     shuttingDown = true;
   });
 
-  let nextPageToken: string | undefined;
-  let totalMessages = 0;
-
-  while (!shuttingDown) {
-    try {
-      const raw = (await getLiveChatMessages(
-        liveChatId,
-        apiKey,
-        nextPageToken,
-      )) as ChatResponseWithPolling;
-
-      const pollIntervalMs = raw.pollingIntervalMillis ??
-        DEFAULT_POLL_INTERVAL_MS;
-      nextPageToken = raw.nextPageToken;
-
-      const messages = normalizeRawMessages(raw.items);
-
-      if (messages.length > 0) {
-        await upsertFansAndMessages(supabase, messages, videoId, ownerId);
-        totalMessages += messages.length;
-        console.log(
-          `[${timestamp()}] +${messages.length} messages (${totalMessages.toLocaleString()} total)`,
-        );
-      } else {
-        console.log(`[${timestamp()}] (no new messages)`);
-      }
-
-      // YouTube signals stream end: no next page token and no items returned.
-      if (!nextPageToken && (!raw.items || raw.items.length === 0)) {
-        console.log(`[${timestamp()}] Stream ended.`);
-        break;
-      }
-
-      await sleep(pollIntervalMs);
-    } catch (err) {
-      console.error(
-        `[${timestamp()}] Poll error: ${
-          (err as Error).message
-        } — retrying after ${ERROR_BACKOFF_MS / 1000}s`,
-      );
-      await sleep(ERROR_BACKOFF_MS);
-    }
-  }
+  const totalMessages = await pollBroadcastUntilEnd({
+    liveChatId,
+    videoId,
+    apiKey,
+    supabase,
+    ownerId,
+    isShuttingDown: () => shuttingDown,
+  });
 
   console.log(
     `\nDone. ${totalMessages.toLocaleString()} messages written to DB.`,

@@ -104,6 +104,64 @@ function extractPaidDetails(item: ChatItem): Pick<
   return { paidEventType: type, paidAmountMicros: null, paidCurrency: null };
 }
 
+type YouTubeChannelResponse = {
+  items?: Array<{ id?: string }>;
+};
+
+type YouTubeSearchResponse = {
+  items?: Array<{ id?: { videoId?: string } }>;
+};
+
+// Resolves a YouTube handle (e.g. "@KirscheVerstahl" or "KirscheVerstahl") to a channel ID.
+export async function getChannelIdFromHandle(
+  handle: string,
+  apiKey: string,
+): Promise<string> {
+  const normalizedHandle = handle.startsWith("@") ? handle.slice(1) : handle;
+  const url = new URL(`${YOUTUBE_API_BASE}/channels`);
+  url.searchParams.set("part", "id");
+  url.searchParams.set("forHandle", normalizedHandle);
+  url.searchParams.set("key", apiKey);
+
+  const response = await fetch(url.toString(), { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error("Failed to look up channel from YouTube.");
+  }
+
+  const data = (await response.json()) as YouTubeChannelResponse;
+  const channelId = data.items?.[0]?.id;
+
+  if (!channelId) {
+    throw new Error(`No channel found for handle "@${normalizedHandle}".`);
+  }
+
+  return channelId;
+}
+
+// Returns the video ID of the channel's current live broadcast, or null if none is active.
+// Uses search.list (100 quota units/call) — call sparingly.
+export async function getActiveBroadcastVideoId(
+  channelId: string,
+  apiKey: string,
+): Promise<string | null> {
+  const url = new URL(`${YOUTUBE_API_BASE}/search`);
+  url.searchParams.set("part", "id");
+  url.searchParams.set("channelId", channelId);
+  url.searchParams.set("eventType", "live");
+  url.searchParams.set("type", "video");
+  url.searchParams.set("key", apiKey);
+
+  const response = await fetch(url.toString(), { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error("Failed to search for live broadcasts on YouTube.");
+  }
+
+  const data = (await response.json()) as YouTubeSearchResponse;
+  return data.items?.[0]?.id?.videoId ?? null;
+}
+
 export async function getActiveLiveChatId(
   videoId: string,
   apiKey: string,

@@ -10,8 +10,10 @@ npm run build    # Production build
 npm run lint     # ESLint
 npm test         # Run tests (vitest)
 npm run test:watch  # Vitest in watch mode
-npm run ingest -- <youtube_url>  # Ingest live chat (loads .env)
-npx tsx --env-file=.env.local scripts/ingest.ts <youtube_url>  # Ingest using .env.local
+npm run ingest_video -- <youtube_url_or_video_id>  # Ingest one video's live chat (loads .env)
+npm run ingest_channel -- @ChannelHandle          # Poll channel every 10 min, ingest when live
+npx tsx --env-file=.env.local scripts/ingest_video.ts <url>       # Same, using .env.local
+npx tsx --env-file=.env.local scripts/ingest_channel.ts @Handle   # Same, using .env.local
 ```
 
 **Supabase local dev:**
@@ -80,4 +82,5 @@ Migration files live in `supabase/migrations/`. Naming convention: `YYYYMMDDHHMM
 1. Sign in once via the web app to create your user account
 2. Copy your UUID from Supabase dashboard → Authentication → Users
 3. Add to `.env`: `INGEST_OWNER_USER_ID=<your-uuid>`
-4. Point at a live stream: `npm run ingest -- https://www.youtube.com/watch?v=<ID>`
+4. Ingest a specific video: `npm run ingest_video -- https://www.youtube.com/watch?v=<ID>`
+5. Or watch a channel continuously: `npm run ingest_channel -- @ChannelHandle`

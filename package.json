@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "ingest": "tsx --env-file=.env scripts/ingest.ts"
+    "ingest_video": "tsx --env-file=.env scripts/ingest_video.ts",
+    "ingest_channel": "tsx --env-file=.env scripts/ingest_channel.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
