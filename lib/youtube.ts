@@ -1,5 +1,12 @@
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 
+export class LiveChatEndedError extends Error {
+  constructor() {
+    super("Live chat has ended.");
+    this.name = "LiveChatEndedError";
+  }
+}
+
 export type YouTubeVideoResponse = {
   items?: Array<{
     liveStreamingDetails?: {
@@ -205,7 +212,11 @@ export async function getLiveChatMessages(
   const response = await fetch(url.toString(), { cache: "no-store" });
 
   if (!response.ok) {
-    throw new Error("Failed to fetch live chat messages from YouTube.");
+    const body = await response.text().catch(() => "");
+    if (body.includes("liveChatEnded")) throw new LiveChatEndedError();
+    throw new Error(
+      `Failed to fetch live chat messages from YouTube. status=${response.status} body=${body}`,
+    );
   }
 
   return (await response.json()) as YouTubeChatResponse;

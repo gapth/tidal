@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   getLiveChatMessages,
   normalizeRawMessages,
+  LiveChatEndedError,
   type YouTubeChatResponse,
 } from "@/lib/youtube";
 import { upsertFansAndMessages } from "@/lib/db";
@@ -14,8 +15,8 @@ type ChatResponseWithPolling = YouTubeChatResponse & {
   pollingIntervalMillis?: number;
 };
 
-const DEFAULT_POLL_INTERVAL_MS = 10_000;
-const ERROR_BACKOFF_MS = 15_000;
+const MIN_POLL_INTERVAL_MS = 30_000;
+const ERROR_BACKOFF_MS = 45_000;
 
 export function timestamp(): string {
   return new Date().toLocaleTimeString();
@@ -62,8 +63,10 @@ export async function pollBroadcastUntilEnd(opts: {
         nextPageToken,
       )) as ChatResponseWithPolling;
 
-      const pollIntervalMs =
-        raw.pollingIntervalMillis ?? DEFAULT_POLL_INTERVAL_MS;
+      const pollIntervalMs = Math.max(
+        raw.pollingIntervalMillis ?? MIN_POLL_INTERVAL_MS,
+        MIN_POLL_INTERVAL_MS,
+      );
       nextPageToken = raw.nextPageToken;
 
       const messages = normalizeRawMessages(raw.items);
@@ -86,8 +89,14 @@ export async function pollBroadcastUntilEnd(opts: {
 
       await interruptibleSleep(pollIntervalMs, isShuttingDown);
     } catch (err) {
+      if (err instanceof LiveChatEndedError) {
+        console.log(`[${timestamp()}] Stream ended (live chat closed).`);
+        break;
+      }
       console.error(
-        `[${timestamp()}] Poll error: ${(err as Error).message} — retrying after ${ERROR_BACKOFF_MS / 1000}s`,
+        `[${timestamp()}] Poll error: ${
+          (err as Error).message
+        } — retrying after ${ERROR_BACKOFF_MS / 1000}s`,
       );
       await interruptibleSleep(ERROR_BACKOFF_MS, isShuttingDown);
     }

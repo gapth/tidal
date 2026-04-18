@@ -58,11 +58,15 @@ function extractVideoId(input: string): string {
 }
 
 async function main() {
-  const rawInput = process.argv[2];
+  const args = process.argv.slice(2);
+  const rawInput = args.find((a) => !a.startsWith("--"));
+  const forcedLiveChatId = args
+    .find((a) => a.startsWith("--live-chat-id="))
+    ?.slice("--live-chat-id=".length);
 
-  if (!rawInput) {
+  if (!rawInput && !forcedLiveChatId) {
     console.error(
-      "Usage: npx tsx --env-file=.env.local scripts/ingest_video.ts <youtube_url_or_video_id>",
+      "Usage: npx tsx --env-file=.env.local scripts/ingest_video.ts <youtube_url_or_video_id> [--live-chat-id=<id>]",
     );
     process.exit(1);
   }
@@ -83,12 +87,14 @@ async function main() {
   const apiKey = process.env.YOUTUBE_API_KEY!;
   const ownerId = process.env.INGEST_OWNER_USER_ID!;
 
-  let videoId: string;
-  try {
-    videoId = extractVideoId(rawInput);
-  } catch (err) {
-    console.error((err as Error).message);
-    process.exit(1);
+  let videoId = "unknown";
+  if (rawInput) {
+    try {
+      videoId = extractVideoId(rawInput);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
   }
 
   console.log(`\nTidal ingest starting — video: ${videoId}`);
@@ -96,14 +102,19 @@ async function main() {
   const supabase = createSupabaseAdminClient();
 
   let liveChatId: string;
-  try {
-    liveChatId = await getActiveLiveChatId(videoId, apiKey);
-  } catch (err) {
-    console.error(`Error: ${(err as Error).message}`);
-    console.error(
-      "  The stream may not be live yet, or the video ID is incorrect.",
-    );
-    process.exit(1);
+  if (forcedLiveChatId) {
+    liveChatId = forcedLiveChatId;
+    console.log(`Live chat ID: ${liveChatId} (forced)`);
+  } else {
+    try {
+      liveChatId = await getActiveLiveChatId(videoId, apiKey);
+    } catch (err) {
+      console.error(`Error: ${(err as Error).message}`);
+      console.error(
+        "  The stream may not be live yet, or the video ID is incorrect.",
+      );
+      process.exit(1);
+    }
   }
 
   console.log(`Live chat ID: ${liveChatId}`);
