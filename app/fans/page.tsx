@@ -5,6 +5,7 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { formatTimestamp, parsePageNumber } from "@/lib/utils";
 import { aggregateMessageStatsByFanId } from "@/lib/fan-stats";
+import type { ScoreBreakdown, SignalBreakdown } from "@/lib/scoring";
 
 type FanRow = {
   id: string;
@@ -27,6 +28,21 @@ type FanSummary = {
   latestMessageTime: string | null;
 };
 
+type FanScoreRow = {
+  fan_id: string;
+  score: number;
+  breakdown: ScoreBreakdown;
+  computed_at: string;
+};
+
+type RankedEntry = {
+  fanId: string;
+  name: string | null;
+  score: number;
+  signals: SignalBreakdown[];
+  computedAt: string;
+};
+
 type FansPageProps = {
   searchParams: Promise<{
     page?: string;
@@ -38,6 +54,54 @@ const FANS_PER_PAGE = 20;
 
 function buildPageHref(page: number) {
   return page === 1 ? "/fans" : `/fans?page=${page}`;
+}
+
+function RankedFanCard({
+  rank,
+  entry,
+}: {
+  rank: number;
+  entry: RankedEntry;
+}) {
+  const displayName = entry.name?.trim() || "Anonymous Fan";
+  const topSignals = [...entry.signals]
+    .sort((a, b) => b.contribution - a.contribution)
+    .slice(0, 3);
+
+  const scoreColor =
+    entry.score >= 70
+      ? "border-emerald-500/30 bg-emerald-500/20 text-emerald-300"
+      : entry.score >= 40
+        ? "border-amber-500/30 bg-amber-500/20 text-amber-300"
+        : "border-slate-600 bg-slate-700/50 text-slate-400";
+
+  return (
+    <li className="flex items-start gap-4 rounded-2xl border border-slate-800 bg-slate-950/40 px-4 py-3">
+      <span className="mt-0.5 w-5 shrink-0 text-right font-mono text-sm text-slate-500">
+        {rank}
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <span className="truncate font-medium text-white">{displayName}</span>
+          <span
+            className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${scoreColor}`}
+          >
+            {entry.score}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {topSignals.map((signal) => (
+            <span
+              key={signal.signal}
+              className="rounded-full border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-300"
+            >
+              {signal.label}
+            </span>
+          ))}
+        </div>
+      </div>
+    </li>
+  );
 }
 
 export default async function FansPage({ searchParams }: FansPageProps) {
@@ -58,6 +122,7 @@ export default async function FansPage({ searchParams }: FansPageProps) {
   const [
     { count: totalFansCount, error: countError },
     { data: fans, error: fansError },
+    { data: fanScores, error: fanScoresError },
   ] = await Promise.all([
     supabase.from("fans").select("id", { count: "exact", head: true }),
     supabase
@@ -66,17 +131,42 @@ export default async function FansPage({ searchParams }: FansPageProps) {
       .order("name", { ascending: true })
       .order("yt_id", { ascending: true })
       .range(pageStart, pageEnd),
+    supabase
+      .from("fan_scores")
+      .select("fan_id, score, breakdown, computed_at")
+      .order("score", { ascending: false })
+      .limit(20),
   ]);
 
-  if (countError) {
-    throw new Error(countError.message);
-  }
-
-  if (fansError) {
-    throw new Error(fansError.message);
-  }
+  if (countError) throw new Error(countError.message);
+  if (fansError) throw new Error(fansError.message);
+  if (fanScoresError) throw new Error(fanScoresError.message);
 
   const pagedFans = (fans ?? []) as FanRow[];
+
+  // Build ranked entries from pre-computed fan_scores joined to fan names.
+  // Fan names for ranked fans may not be on the current page, so we do a
+  // separate lookup map from the scored fan IDs.
+  const scoredRows = (fanScores ?? []) as FanScoreRow[];
+  const scoredFanIds = scoredRows.map((r) => r.fan_id);
+  let rankedFanNameMap = new Map<string, string | null>();
+  if (scoredFanIds.length > 0) {
+    const { data: scoredFanNames } = await supabase
+      .from("fans")
+      .select("id, name")
+      .in("id", scoredFanIds);
+    for (const f of scoredFanNames ?? []) {
+      rankedFanNameMap.set(f.id, f.name);
+    }
+  }
+
+  const rankedEntries: RankedEntry[] = scoredRows.map((row) => ({
+    fanId: row.fan_id,
+    name: rankedFanNameMap.get(row.fan_id) ?? null,
+    score: row.score,
+    signals: row.breakdown.signals ?? [],
+    computedAt: row.computed_at,
+  }));
   const totalTrackedFans = totalFansCount ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalTrackedFans / FANS_PER_PAGE));
 
@@ -156,16 +246,39 @@ export default async function FansPage({ searchParams }: FansPageProps) {
         <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold text-white">Insights</h2>
+              <h2 className="text-xl font-semibold text-white">
+                Top Fans to Nudge
+              </h2>
               <p className="mt-1 text-sm text-slate-400">
-                Placeholder for fan engagement summaries and trends.
+                {rankedEntries.length > 0
+                  ? `Ranked by conversion likelihood · scored ${formatTimestamp(rankedEntries[0].computedAt)}`
+                  : "Scores are computed every 6 hours via a background job."}
               </p>
             </div>
+            {rankedEntries.length > 0 && (
+              <span className="text-xs text-slate-500">
+                {rankedEntries.length} fans ranked
+              </span>
+            )}
           </div>
 
-          <div className="mt-4 flex min-h-36 items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-950/40 text-sm text-slate-500">
-            Insights coming soon.
-          </div>
+          {rankedEntries.length === 0 ? (
+            <div className="mt-4 flex min-h-36 flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-800 bg-slate-950/40 text-sm text-slate-500">
+              <span>Scores not yet computed.</span>
+              <span className="text-xs">
+                Trigger a run:{" "}
+                <code className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-slate-300">
+                  POST /api/compute-scores
+                </code>
+              </span>
+            </div>
+          ) : (
+            <ol className="mt-4 flex flex-col gap-2">
+              {rankedEntries.map((entry, index) => (
+                <RankedFanCard key={entry.fanId} rank={index + 1} entry={entry} />
+              ))}
+            </ol>
+          )}
         </section>
 
         <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
