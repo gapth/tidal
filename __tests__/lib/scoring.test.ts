@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { scoreFan, buildScoringInputs, type FanScoringInput } from "@/lib/scoring";
+import { scoreFan, scoreSupporterFan, buildScoringInputs, type FanScoringInput } from "@/lib/scoring";
 
 const NOW = new Date("2026-04-20T12:00:00Z");
 
-// Returns an ISO timestamp N days before NOW.
 function daysAgo(n: number): string {
   return new Date(NOW.getTime() - n * 86_400_000).toISOString();
 }
@@ -21,8 +20,23 @@ function baseInput(overrides: Partial<FanScoringInput> = {}): FanScoringInput {
     latestMessageTime: daysAgo(2),
     directAddressCount: 2,
     hasPaidEvent: false,
+    paidEventCount: 0,
+    streamsWithPaidEvents: 0,
+    lastPaidEventTime: null,
+    firstPaidEventTime: null,
     ...overrides,
   };
+}
+
+function baseSupporterInput(overrides: Partial<FanScoringInput> = {}): FanScoringInput {
+  return baseInput({
+    hasPaidEvent: true,
+    paidEventCount: 3,
+    streamsWithPaidEvents: 2,
+    lastPaidEventTime: daysAgo(5),
+    firstPaidEventTime: weeksAgo(4),
+    ...overrides,
+  });
 }
 
 describe("scoreFan", () => {
@@ -33,25 +47,18 @@ describe("scoreFan", () => {
     expect(result.signals).toHaveLength(0);
   });
 
+  it("returns ineligible for a fan with paid events", () => {
+    const result = scoreFan(baseSupporterInput());
+    expect(result.isEligible).toBe(false);
+    expect(result.ineligibleReason).toBe("Is a supporter");
+    expect(result.signals).toHaveLength(0);
+  });
+
   it("returns eligible with a positive score for a fan with messages", () => {
     const result = scoreFan(baseInput());
     expect(result.isEligible).toBe(true);
     expect(result.totalScore).toBeGreaterThan(0);
     expect(result.totalScore).toBeLessThanOrEqual(100);
-  });
-
-  it("scores 0 on noMonetization when fan has paid events", () => {
-    const result = scoreFan(baseInput({ hasPaidEvent: true }));
-    const signal = result.signals.find((s) => s.signal === "noMonetization");
-    expect(signal?.normalizedScore).toBe(0);
-    expect(signal?.label).toBe("has paid before");
-  });
-
-  it("scores 1 on noMonetization when fan has never paid", () => {
-    const result = scoreFan(baseInput({ hasPaidEvent: false }));
-    const signal = result.signals.find((s) => s.signal === "noMonetization");
-    expect(signal?.normalizedScore).toBe(1);
-    expect(signal?.label).toBe("never paid");
   });
 
   it("caps streamAttendance at score 1 when at or above cap (20 streams)", () => {
@@ -85,9 +92,49 @@ describe("scoreFan", () => {
     expect(result.totalScore).toBeLessThanOrEqual(100);
   });
 
-  it("returns 6 signal breakdowns for eligible fans", () => {
+  it("returns 5 signal breakdowns for eligible fans", () => {
     const result = scoreFan(baseInput());
-    expect(result.signals).toHaveLength(6);
+    expect(result.signals).toHaveLength(5);
+  });
+});
+
+describe("scoreSupporterFan", () => {
+  it("returns ineligible for a fan with no paid events", () => {
+    const result = scoreSupporterFan(baseInput());
+    expect(result.isEligible).toBe(false);
+    expect(result.ineligibleReason).toBe("No support events recorded");
+  });
+
+  it("returns eligible with a positive score for a supporter", () => {
+    const result = scoreSupporterFan(baseSupporterInput());
+    expect(result.isEligible).toBe(true);
+    expect(result.totalScore).toBeGreaterThan(0);
+    expect(result.totalScore).toBeLessThanOrEqual(100);
+  });
+
+  it("returns 4 signal breakdowns for eligible supporters", () => {
+    const result = scoreSupporterFan(baseSupporterInput());
+    expect(result.signals).toHaveLength(4);
+  });
+
+  it("caps supportEventCount at score 1 when at or above cap (10 events)", () => {
+    const result = scoreSupporterFan(baseSupporterInput({ paidEventCount: 10 }));
+    const signal = result.signals.find((s) => s.signal === "supportEventCount");
+    expect(signal?.normalizedScore).toBe(1);
+  });
+
+  it("gives zero supportRecency score when last support beyond cap (30 days)", () => {
+    const result = scoreSupporterFan(baseSupporterInput({ lastPaidEventTime: daysAgo(31) }));
+    const signal = result.signals.find((s) => s.signal === "supportRecency");
+    expect(signal?.normalizedScore).toBe(0);
+  });
+
+  it("supportConsistency is 1 when fan paid in every stream attended", () => {
+    const result = scoreSupporterFan(
+      baseSupporterInput({ streamsAttended: 3, streamsWithPaidEvents: 3 }),
+    );
+    const signal = result.signals.find((s) => s.signal === "supportConsistency");
+    expect(signal?.normalizedScore).toBe(1);
   });
 });
 
@@ -168,6 +215,29 @@ describe("buildScoringInputs", () => {
     const inputs = buildScoringInputs([fan("fan-1")], messages);
     expect(inputs[0].earliestMessageTime).toBe(daysAgo(10));
     expect(inputs[0].latestMessageTime).toBe(daysAgo(1));
+  });
+
+  it("tracks paid event count and streams with paid events", () => {
+    const messages = [
+      msg("fan-1", { videoId: "video-a", paidEventType: "superChatEvent" }),
+      msg("fan-1", { videoId: "video-a", paidEventType: "superChatEvent" }),
+      msg("fan-1", { videoId: "video-b", paidEventType: "superChatEvent" }),
+      msg("fan-1", { videoId: "video-c" }),
+    ];
+    const inputs = buildScoringInputs([fan("fan-1")], messages);
+    expect(inputs[0].paidEventCount).toBe(3);
+    expect(inputs[0].streamsWithPaidEvents).toBe(2);
+  });
+
+  it("tracks first and last paid event times", () => {
+    const messages = [
+      msg("fan-1", { time: daysAgo(10), paidEventType: "superChatEvent" }),
+      msg("fan-1", { time: daysAgo(2), paidEventType: "superChatEvent" }),
+      msg("fan-1", { time: daysAgo(5), paidEventType: "superChatEvent" }),
+    ];
+    const inputs = buildScoringInputs([fan("fan-1")], messages);
+    expect(inputs[0].firstPaidEventTime).toBe(daysAgo(10));
+    expect(inputs[0].lastPaidEventTime).toBe(daysAgo(2));
   });
 
   it("handles multiple fans independently", () => {

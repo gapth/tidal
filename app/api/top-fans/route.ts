@@ -33,12 +33,15 @@ export async function GET(req: NextRequest) {
   const page = parsePageNumber(
     req.nextUrl.searchParams.get("page") ?? undefined,
   );
+  const type =
+    req.nextUrl.searchParams.get("type") === "supporter" ? "supporter" : "nudge";
   const pageStart = (page - 1) * TOP_FANS_PER_PAGE;
   const pageEnd = pageStart + TOP_FANS_PER_PAGE - 1;
 
   const { data: fanScores, count } = await supabase
     .from("fan_scores")
     .select("fan_id, score, breakdown, computed_at", { count: "exact" })
+    .eq("score_type", type)
     .order("score", { ascending: false })
     .range(pageStart, pageEnd);
 

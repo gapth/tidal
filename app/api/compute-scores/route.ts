@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { buildScoringInputs, scoreFan } from "@/lib/scoring";
+import { buildScoringInputs, scoreFan, scoreSupporterFan } from "@/lib/scoring";
 
 export async function POST(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -29,7 +29,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: messagesError.message }, { status: 500 });
   }
 
-  // Group fans and messages by owner so scoring runs per-user.
   const fansByOwner = new Map<string, { id: string; owner_user_id: string }[]>();
   for (const fan of fans ?? []) {
     const list = fansByOwner.get(fan.owner_user_id) ?? [];
@@ -53,44 +52,68 @@ export async function POST(request: NextRequest) {
     messagesByOwner.set(msg.owner_user_id, list);
   }
 
-  const upsertRows: {
-    owner_user_id: string;
-    fan_id: string;
-    score: number;
-    breakdown: unknown;
-    computed_at: string;
-  }[] = [];
+  let totalFansScored = 0;
 
   for (const [ownerId, ownerFans] of fansByOwner) {
     const ownerMessages = messagesByOwner.get(ownerId) ?? [];
     const inputs = buildScoringInputs(ownerFans, ownerMessages);
 
+    // Delete stale scores before recomputing so fans that transition types are clean.
+    await supabase.from("fan_scores").delete().eq("owner_user_id", ownerId);
+
+    const insertRows: {
+      owner_user_id: string;
+      fan_id: string;
+      score: number;
+      breakdown: unknown;
+      computed_at: string;
+      score_type: string;
+    }[] = [];
+
+    const computedAt = new Date().toISOString();
+
     for (const input of inputs) {
-      const breakdown = scoreFan(input);
-      if (!breakdown.isEligible) continue;
-      upsertRows.push({
-        owner_user_id: ownerId,
-        fan_id: input.fanId,
-        score: breakdown.totalScore,
-        breakdown,
-        computed_at: new Date().toISOString(),
-      });
+      if (input.hasPaidEvent) {
+        const breakdown = scoreSupporterFan(input);
+        if (!breakdown.isEligible) continue;
+        insertRows.push({
+          owner_user_id: ownerId,
+          fan_id: input.fanId,
+          score: breakdown.totalScore,
+          breakdown,
+          computed_at: computedAt,
+          score_type: "supporter",
+        });
+      } else {
+        const breakdown = scoreFan(input);
+        if (!breakdown.isEligible) continue;
+        insertRows.push({
+          owner_user_id: ownerId,
+          fan_id: input.fanId,
+          score: breakdown.totalScore,
+          breakdown,
+          computed_at: computedAt,
+          score_type: "nudge",
+        });
+      }
     }
-  }
 
-  if (upsertRows.length > 0) {
-    const { error: upsertError } = await supabase
-      .from("fan_scores")
-      .upsert(upsertRows, { onConflict: "owner_user_id,fan_id" });
+    if (insertRows.length > 0) {
+      const { error: insertError } = await supabase
+        .from("fan_scores")
+        .insert(insertRows);
 
-    if (upsertError) {
-      return NextResponse.json({ error: upsertError.message }, { status: 500 });
+      if (insertError) {
+        return NextResponse.json({ error: insertError.message }, { status: 500 });
+      }
     }
+
+    totalFansScored += insertRows.length;
   }
 
   return NextResponse.json({
     usersScored: fansByOwner.size,
-    fansScored: upsertRows.length,
+    fansScored: totalFansScored,
     durationMs: Date.now() - startedAt,
   });
 }

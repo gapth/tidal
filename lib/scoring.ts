@@ -1,10 +1,17 @@
-export type SignalKey =
+type NudgeSignalKey =
   | "streamAttendance"
   | "chatVolumePerStream"
   | "recency"
   | "directAddress"
-  | "noMonetization"
   | "relationshipDuration";
+
+type SupporterSignalKey =
+  | "supportEventCount"
+  | "supportRecency"
+  | "supportConsistency"
+  | "supportDuration";
+
+export type SignalKey = NudgeSignalKey | SupporterSignalKey;
 
 export type SignalBreakdown = {
   signal: SignalKey;
@@ -31,16 +38,25 @@ export type FanScoringInput = {
   latestMessageTime: string;
   directAddressCount: number;
   hasPaidEvent: boolean;
+  paidEventCount: number;
+  streamsWithPaidEvents: number;
+  lastPaidEventTime: string | null;
+  firstPaidEventTime: string | null;
 };
 
-// Adjust these to tune ranking quality based on qualitative feedback.
-const WEIGHTS: Record<SignalKey, number> = {
-  streamAttendance: 0.3,
-  chatVolumePerStream: 0.2,
+const NUDGE_WEIGHTS: Record<NudgeSignalKey, number> = {
+  streamAttendance: 0.35,
+  chatVolumePerStream: 0.25,
   recency: 0.2,
   directAddress: 0.15,
-  noMonetization: 0.1,
   relationshipDuration: 0.05,
+};
+
+const SUPPORTER_WEIGHTS: Record<SupporterSignalKey, number> = {
+  supportEventCount: 0.35,
+  supportRecency: 0.3,
+  supportConsistency: 0.25,
+  supportDuration: 0.1,
 };
 
 const CAPS = {
@@ -49,6 +65,9 @@ const CAPS = {
   recencyDays: 30,
   directAddress: 5,
   relationshipWeeks: 12,
+  supportEventCount: 10,
+  supportRecencyDays: 30,
+  supportDurationWeeks: 12,
 };
 
 export function scoreFan(input: FanScoringInput): ScoreBreakdown {
@@ -59,6 +78,16 @@ export function scoreFan(input: FanScoringInput): ScoreBreakdown {
       signals: [],
       isEligible: false,
       ineligibleReason: "No messages recorded",
+    };
+  }
+
+  if (input.hasPaidEvent) {
+    return {
+      fanId: input.fanId,
+      totalScore: 0,
+      signals: [],
+      isEligible: false,
+      ineligibleReason: "Is a supporter",
     };
   }
 
@@ -73,7 +102,7 @@ export function scoreFan(input: FanScoringInput): ScoreBreakdown {
       : 0;
 
   const rawSignals: Array<{
-    key: SignalKey;
+    key: NudgeSignalKey;
     raw: number;
     score: number;
     label: string;
@@ -109,12 +138,6 @@ export function scoreFan(input: FanScoringInput): ScoreBreakdown {
           : `${input.directAddressCount} direct message${input.directAddressCount === 1 ? "" : "s"}`,
     },
     {
-      key: "noMonetization",
-      raw: input.hasPaidEvent ? 0 : 1,
-      score: input.hasPaidEvent ? 0 : 1,
-      label: input.hasPaidEvent ? "has paid before" : "never paid",
-    },
-    {
       key: "relationshipDuration",
       raw: weeksSinceFirst,
       score: clamp01(weeksSinceFirst / CAPS.relationshipWeeks),
@@ -122,14 +145,91 @@ export function scoreFan(input: FanScoringInput): ScoreBreakdown {
     },
   ];
 
-  const totalWeight = Object.values(WEIGHTS).reduce((a, b) => a + b, 0);
+  const totalWeight = Object.values(NUDGE_WEIGHTS).reduce((a, b) => a + b, 0);
 
   const signals: SignalBreakdown[] = rawSignals.map(({ key, raw, score, label }) => ({
     signal: key,
     rawValue: raw,
     normalizedScore: score,
-    weight: WEIGHTS[key],
-    contribution: score * WEIGHTS[key],
+    weight: NUDGE_WEIGHTS[key],
+    contribution: score * NUDGE_WEIGHTS[key],
+    label,
+  }));
+
+  const weightedSum = signals.reduce((sum, s) => sum + s.contribution, 0);
+  const totalScore = Math.round((weightedSum / totalWeight) * 100);
+
+  return { fanId: input.fanId, totalScore, signals, isEligible: true };
+}
+
+export function scoreSupporterFan(input: FanScoringInput): ScoreBreakdown {
+  if (!input.hasPaidEvent || input.paidEventCount === 0) {
+    return {
+      fanId: input.fanId,
+      totalScore: 0,
+      signals: [],
+      isEligible: false,
+      ineligibleReason: "No support events recorded",
+    };
+  }
+
+  const now = Date.now();
+  const daysSinceLastPaid =
+    input.lastPaidEventTime
+      ? (now - new Date(input.lastPaidEventTime).getTime()) / 86_400_000
+      : 30;
+  const weeksSinceFirstPaid =
+    input.firstPaidEventTime
+      ? (now - new Date(input.firstPaidEventTime).getTime()) / (86_400_000 * 7)
+      : 0;
+  const consistency =
+    input.streamsAttended > 0
+      ? input.streamsWithPaidEvents / input.streamsAttended
+      : 0;
+
+  const rawSignals: Array<{
+    key: SupporterSignalKey;
+    raw: number;
+    score: number;
+    label: string;
+  }> = [
+    {
+      key: "supportEventCount",
+      raw: input.paidEventCount,
+      score: clamp01(input.paidEventCount / CAPS.supportEventCount),
+      label: `${input.paidEventCount} support event${input.paidEventCount === 1 ? "" : "s"}`,
+    },
+    {
+      key: "supportRecency",
+      raw: daysSinceLastPaid,
+      score: clamp01(1 - daysSinceLastPaid / CAPS.supportRecencyDays),
+      label:
+        daysSinceLastPaid < 1
+          ? "supported today"
+          : `last supported ${Math.floor(daysSinceLastPaid)} day${Math.floor(daysSinceLastPaid) === 1 ? "" : "s"} ago`,
+    },
+    {
+      key: "supportConsistency",
+      raw: consistency,
+      score: clamp01(consistency),
+      label: `supports in ${input.streamsWithPaidEvents} of ${input.streamsAttended} stream${input.streamsAttended === 1 ? "" : "s"}`,
+    },
+    {
+      key: "supportDuration",
+      raw: weeksSinceFirstPaid,
+      score: clamp01(weeksSinceFirstPaid / CAPS.supportDurationWeeks),
+      label: `supporter for ${Math.floor(weeksSinceFirstPaid)} week${Math.floor(weeksSinceFirstPaid) === 1 ? "" : "s"}`,
+    },
+  ];
+
+  const totalWeight = Object.values(SUPPORTER_WEIGHTS).reduce((a, b) => a + b, 0);
+
+  const signals: SignalBreakdown[] = rawSignals.map(({ key, raw, score, label }) => ({
+    signal: key,
+    rawValue: raw,
+    normalizedScore: score,
+    weight: SUPPORTER_WEIGHTS[key],
+    contribution: score * SUPPORTER_WEIGHTS[key],
     label,
   }));
 
@@ -158,6 +258,10 @@ export function buildScoringInputs(
     latestTime: string;
     directAddressCount: number;
     hasPaidEvent: boolean;
+    paidEventCount: number;
+    videosWithPaidEvents: Set<string>;
+    firstPaidEventTime: string | null;
+    lastPaidEventTime: string | null;
   };
 
   const acc = new Map<string, Acc>();
@@ -170,6 +274,10 @@ export function buildScoringInputs(
       latestTime: msg.time,
       directAddressCount: 0,
       hasPaidEvent: false,
+      paidEventCount: 0,
+      videosWithPaidEvents: new Set<string>(),
+      firstPaidEventTime: null,
+      lastPaidEventTime: null,
     };
 
     entry.videos.add(msg.yt_video_id);
@@ -177,7 +285,18 @@ export function buildScoringInputs(
     if (msg.time < entry.earliestTime) entry.earliestTime = msg.time;
     if (msg.time > entry.latestTime) entry.latestTime = msg.time;
     if (msg.text && isDirectAddress(msg.text)) entry.directAddressCount += 1;
-    if (msg.paid_event_type !== null) entry.hasPaidEvent = true;
+
+    if (msg.paid_event_type !== null) {
+      entry.hasPaidEvent = true;
+      entry.paidEventCount += 1;
+      entry.videosWithPaidEvents.add(msg.yt_video_id);
+      if (entry.firstPaidEventTime === null || msg.time < entry.firstPaidEventTime) {
+        entry.firstPaidEventTime = msg.time;
+      }
+      if (entry.lastPaidEventTime === null || msg.time > entry.lastPaidEventTime) {
+        entry.lastPaidEventTime = msg.time;
+      }
+    }
 
     acc.set(msg.fan_id, entry);
   }
@@ -193,6 +312,10 @@ export function buildScoringInputs(
         latestMessageTime: new Date().toISOString(),
         directAddressCount: 0,
         hasPaidEvent: false,
+        paidEventCount: 0,
+        streamsWithPaidEvents: 0,
+        lastPaidEventTime: null,
+        firstPaidEventTime: null,
       };
     }
     return {
@@ -203,6 +326,10 @@ export function buildScoringInputs(
       latestMessageTime: data.latestTime,
       directAddressCount: data.directAddressCount,
       hasPaidEvent: data.hasPaidEvent,
+      paidEventCount: data.paidEventCount,
+      streamsWithPaidEvents: data.videosWithPaidEvents.size,
+      lastPaidEventTime: data.lastPaidEventTime,
+      firstPaidEventTime: data.firstPaidEventTime,
     };
   });
 }

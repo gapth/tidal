@@ -44,13 +44,21 @@ export default async function FansPage() {
 
   const [
     { count: totalFansCount },
-    { data: fanScores, count: totalScoresCount },
+    { data: nudgeScores, count: totalNudgeCount },
+    { data: supporterScores, count: totalSupporterCount },
     { data: fans },
   ] = await Promise.all([
     supabase.from("fans").select("id", { count: "exact", head: true }),
     supabase
       .from("fan_scores")
       .select("fan_id, score, breakdown, computed_at", { count: "exact" })
+      .eq("score_type", "nudge")
+      .order("score", { ascending: false })
+      .range(0, TOP_FANS_PER_PAGE - 1),
+    supabase
+      .from("fan_scores")
+      .select("fan_id, score, breakdown, computed_at", { count: "exact" })
+      .eq("score_type", "supporter")
       .order("score", { ascending: false })
       .range(0, TOP_FANS_PER_PAGE - 1),
     supabase
@@ -63,26 +71,32 @@ export default async function FansPage() {
 
   const totalTrackedFans = totalFansCount ?? 0;
 
-  // Resolve top-fans initial data
-  const scoredRows = (fanScores ?? []) as FanScoreRow[];
-  const nameMap = new Map<string, string | null>();
-  if (scoredRows.length > 0) {
-    const { data: nameRows } = await supabase
-      .from("fans")
-      .select("id, name")
-      .in(
-        "id",
-        scoredRows.map((r) => r.fan_id),
-      );
-    for (const f of nameRows ?? []) nameMap.set(f.id, f.name);
+  async function resolveTopFans(rows: FanScoreRow[] | null) {
+    const scoredRows = (rows ?? []) as FanScoreRow[];
+    const nameMap = new Map<string, string | null>();
+    if (scoredRows.length > 0) {
+      const { data: nameRows } = await supabase
+        .from("fans")
+        .select("id, name")
+        .in(
+          "id",
+          scoredRows.map((r) => r.fan_id),
+        );
+      for (const f of nameRows ?? []) nameMap.set(f.id, f.name);
+    }
+    return scoredRows.map((row) => ({
+      fanId: row.fan_id,
+      name: nameMap.get(row.fan_id) ?? null,
+      score: row.score,
+      signals: (row.breakdown.signals ?? []) as SignalBreakdown[],
+      computedAt: row.computed_at,
+    }));
   }
-  const initialTopFans = scoredRows.map((row) => ({
-    fanId: row.fan_id,
-    name: nameMap.get(row.fan_id) ?? null,
-    score: row.score,
-    signals: (row.breakdown.signals ?? []) as SignalBreakdown[],
-    computedAt: row.computed_at,
-  }));
+
+  const [initialNudgeFans, initialSupporterFans] = await Promise.all([
+    resolveTopFans(nudgeScores as FanScoreRow[] | null),
+    resolveTopFans(supporterScores as FanScoreRow[] | null),
+  ]);
 
   // Resolve fan-table initial data
   const pagedFans = (fans ?? []) as FanRow[];
@@ -145,8 +159,15 @@ export default async function FansPage() {
         </section>
 
         <TopFansSection
-          initialEntries={initialTopFans}
-          initialTotal={totalScoresCount ?? 0}
+          type="nudge"
+          initialEntries={initialNudgeFans}
+          initialTotal={totalNudgeCount ?? 0}
+        />
+
+        <TopFansSection
+          type="supporter"
+          initialEntries={initialSupporterFans}
+          initialTotal={totalSupporterCount ?? 0}
         />
 
         <FanTableSection

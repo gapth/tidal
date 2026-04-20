@@ -15,18 +15,32 @@ export type TopFansEntry = {
 
 const TOP_FANS_PER_PAGE = 10;
 
-function RankedFanCard({ rank, entry }: { rank: number; entry: TopFansEntry }) {
+function RankedFanCard({
+  rank,
+  entry,
+  type,
+}: {
+  rank: number;
+  entry: TopFansEntry;
+  type: "nudge" | "supporter";
+}) {
   const displayName = entry.name?.trim() || "Anonymous Fan";
   const topSignals = [...entry.signals]
     .sort((a, b) => b.contribution - a.contribution)
     .slice(0, 3);
 
   const scoreColor =
-    entry.score >= 70
-      ? "border-emerald-500/30 bg-emerald-500/20 text-emerald-300"
-      : entry.score >= 40
+    type === "supporter"
+      ? entry.score >= 70
         ? "border-amber-500/30 bg-amber-500/20 text-amber-300"
-        : "border-slate-600 bg-slate-700/50 text-slate-400";
+        : entry.score >= 40
+          ? "border-yellow-600/30 bg-yellow-600/20 text-yellow-400"
+          : "border-slate-600 bg-slate-700/50 text-slate-400"
+      : entry.score >= 70
+        ? "border-emerald-500/30 bg-emerald-500/20 text-emerald-300"
+        : entry.score >= 40
+          ? "border-amber-500/30 bg-amber-500/20 text-amber-300"
+          : "border-slate-600 bg-slate-700/50 text-slate-400";
 
   return (
     <li className="flex items-start gap-4 rounded-2xl border border-slate-800 bg-slate-950/40 px-4 py-3">
@@ -57,10 +71,23 @@ function RankedFanCard({ rank, entry }: { rank: number; entry: TopFansEntry }) {
   );
 }
 
+const SECTION_COPY = {
+  nudge: {
+    title: "Fans to Nudge",
+    subtitle: "Ranked by conversion likelihood",
+  },
+  supporter: {
+    title: "Top Supporters",
+    subtitle: "Ranked by support level · call out and thank these fans",
+  },
+};
+
 export function TopFansSection({
+  type,
   initialEntries,
   initialTotal,
 }: {
+  type: "nudge" | "supporter";
   initialEntries: TopFansEntry[];
   initialTotal: number;
 }) {
@@ -71,11 +98,12 @@ export function TopFansSection({
 
   const totalPages = Math.max(1, Math.ceil(total / TOP_FANS_PER_PAGE));
   const rankOffset = (currentPage - 1) * TOP_FANS_PER_PAGE;
+  const copy = SECTION_COPY[type];
 
   async function goToPage(page: number) {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/top-fans?page=${page}`);
+      const res = await fetch(`/api/top-fans?page=${page}&type=${type}`);
       const data = await res.json();
       setEntries(data.entries);
       setTotal(data.totalCount);
@@ -93,12 +121,10 @@ export function TopFansSection({
     <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold text-white">
-            Top Fans to Nudge
-          </h2>
+          <h2 className="text-xl font-semibold text-white">{copy.title}</h2>
           <p className="mt-1 text-sm text-slate-400">
             {entries.length > 0
-              ? `Ranked by conversion likelihood · scored ${formatTimestamp(entries[0].computedAt)}`
+              ? `${copy.subtitle} · scored ${formatTimestamp(entries[0].computedAt)}`
               : "Scores are computed every 6 hours via a background job."}
           </p>
         </div>
@@ -125,6 +151,7 @@ export function TopFansSection({
                 key={entry.fanId}
                 rank={rankOffset + index + 1}
                 entry={entry}
+                type={type}
               />
             ))}
           </ol>
