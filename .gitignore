@@ -35,3 +35,12 @@ supabase/seed.sql
 
 .vscode/
 .claude/
+
+# Python
+__pycache__/
+*.pyc
+
+# ML artifacts
+ml/
+models/*.pkl
+models/*.onnx
