@@ -14,13 +14,17 @@ export async function POST(request: NextRequest) {
   const startedAt = Date.now();
   const supabase = createSupabaseAdminClient();
 
-  const [{ data: fans, error: fansError }, { data: messages, error: messagesError }] =
-    await Promise.all([
-      supabase.from("fans").select("id, owner_user_id"),
-      supabase
-        .from("messages")
-        .select("fan_id, yt_video_id, time, text, paid_event_type, owner_user_id"),
-    ]);
+  const [
+    { data: fans, error: fansError },
+    { data: messages, error: messagesError },
+  ] = await Promise.all([
+    supabase.from("fans").select("id, owner_user_id"),
+    supabase
+      .from("messages")
+      .select(
+        "fan_id, yt_video_id, time, text, paid_event_type, owner_user_id",
+      ),
+  ]);
 
   if (fansError) {
     return NextResponse.json({ error: fansError.message }, { status: 500 });
@@ -29,7 +33,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: messagesError.message }, { status: 500 });
   }
 
-  const fansByOwner = new Map<string, { id: string; owner_user_id: string }[]>();
+  const fansByOwner = new Map<
+    string,
+    { id: string; owner_user_id: string }[]
+  >();
   for (const fan of fans ?? []) {
     const list = fansByOwner.get(fan.owner_user_id) ?? [];
     list.push(fan);
@@ -104,7 +111,12 @@ export async function POST(request: NextRequest) {
         .insert(insertRows);
 
       if (insertError) {
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
+        return NextResponse.json(
+          { error: insertError.message },
+          {
+            status: 500,
+          },
+        );
       }
     }
 
