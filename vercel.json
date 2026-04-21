@@ -1,8 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/compute-scores",
-      "schedule": "0 16 * * *"
-    }
-  ]
-}
+{}

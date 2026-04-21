@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parsePageNumber } from "@/lib/utils";
-import type { ScoreBreakdown, SignalBreakdown } from "@/lib/scoring";
-
-type FanScoreRow = {
-  fan_id: string;
-  score: number;
-  breakdown: ScoreBreakdown;
-  computed_at: string;
-};
 
 export type TopFansEntry = {
   fanId: string;
   name: string | null;
-  score: number;
-  signals: SignalBreakdown[];
-  computedAt: string;
+  videosCount: number;
+  messagesCount: number;
+  videosWithPaidEvents: number | null;
+  paidEventCount: number | null;
   spendProb: number | null;
 };
 
@@ -39,40 +32,105 @@ export async function GET(req: NextRequest) {
       ? "supporter"
       : "nudge";
   const pageStart = (page - 1) * TOP_FANS_PER_PAGE;
-  const pageEnd = pageStart + TOP_FANS_PER_PAGE - 1;
 
-  const { data: fanScores, count } = await supabase
-    .from("fan_scores")
-    .select("fan_id, score, breakdown, computed_at", { count: "exact" })
-    .eq("score_type", type)
-    .order("score", { ascending: false })
-    .range(pageStart, pageEnd);
+  if (type === "supporter") {
+    const { data, count, error } = await supabase
+      .from("fan_stats")
+      .select(
+        "id, name, videos_count, messages_count, videos_with_paid_events, paid_event_count, spend_prob",
+        { count: "exact" },
+      )
+      .eq("has_paid_event", true)
+      .order("paid_event_count", { ascending: false, nullsFirst: false })
+      .range(pageStart, pageStart + TOP_FANS_PER_PAGE - 1);
 
-  const scoredRows = (fanScores ?? []) as FanScoreRow[];
-  const nameMap = new Map<string, string | null>();
-  const spendProbMap = new Map<string, number>();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
-  if (scoredRows.length > 0) {
-    const fanIds = scoredRows.map((r) => r.fan_id);
-    const [{ data: nameRows }, { data: predRows }] = await Promise.all([
-      supabase.from("fans").select("id, name").in("id", fanIds),
-      supabase
-        .from("fan_predictions")
-        .select("fan_id, spend_prob")
-        .in("fan_id", fanIds),
-    ]);
-    for (const f of nameRows ?? []) nameMap.set(f.id, f.name);
-    for (const p of predRows ?? []) spendProbMap.set(p.fan_id, p.spend_prob);
+    const entries: TopFansEntry[] = (data ?? []).map((row) => ({
+      fanId: row.id,
+      name: row.name,
+      videosCount: row.videos_count ?? 0,
+      messagesCount: row.messages_count ?? 0,
+      videosWithPaidEvents: row.videos_with_paid_events ?? null,
+      paidEventCount: row.paid_event_count ?? null,
+      spendProb: row.spend_prob ?? null,
+    }));
+
+    return NextResponse.json({ entries, totalCount: count ?? 0 });
   }
 
-  const entries: TopFansEntry[] = scoredRows.map((row) => ({
-    fanId: row.fan_id,
-    name: nameMap.get(row.fan_id) ?? null,
-    score: row.score,
-    signals: row.breakdown.signals ?? [],
-    computedAt: row.computed_at,
-    spendProb: spendProbMap.get(row.fan_id) ?? null,
+  // Nudge: fans who chatted in the last stream but didn't spend, sorted by spend_prob DESC
+  const { data: lastMsg } = await supabase
+    .from("messages")
+    .select("yt_video_id")
+    .order("time", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!lastMsg?.yt_video_id) {
+    return NextResponse.json({ entries: [], totalCount: 0 });
+  }
+
+  const lastStreamId = lastMsg.yt_video_id;
+
+  const [{ data: streamFanRows }, { data: paidFanRows }] = await Promise.all([
+    supabase.from("messages").select("fan_id").eq("yt_video_id", lastStreamId),
+    supabase
+      .from("messages")
+      .select("fan_id")
+      .eq("yt_video_id", lastStreamId)
+      .not("paid_event_type", "is", null),
+  ]);
+
+  const allFanIds = [
+    ...new Set((streamFanRows ?? []).map((r) => r.fan_id as string)),
+  ];
+  const paidFanIds = new Set(
+    (paidFanRows ?? []).map((r) => r.fan_id as string),
+  );
+  const nudgeFanIds = allFanIds.filter((id) => !paidFanIds.has(id));
+
+  if (nudgeFanIds.length === 0) {
+    return NextResponse.json({ entries: [], totalCount: 0 });
+  }
+
+  // fan_stats includes spend_prob, videos_count, messages_count, and name in one query.
+  // Chunk to avoid URI too long errors with large fan lists.
+  const CHUNK = 100;
+  const chunks = Array.from(
+    { length: Math.ceil(nudgeFanIds.length / CHUNK) },
+    (_, i) => nudgeFanIds.slice(i * CHUNK, (i + 1) * CHUNK),
+  );
+  const chunkResults = await Promise.all(
+    chunks.map((ids) =>
+      supabase
+        .from("fan_stats")
+        .select("id, name, videos_count, messages_count, spend_prob")
+        .in("id", ids),
+    ),
+  );
+  const statsRows = chunkResults.flatMap((r) => r.data ?? []);
+
+  const sorted = (statsRows ?? []).slice().sort((a, b) => {
+    if (a.spend_prob === null && b.spend_prob === null) return 0;
+    if (a.spend_prob === null) return 1;
+    if (b.spend_prob === null) return -1;
+    return b.spend_prob - a.spend_prob;
+  });
+
+  const pageSlice = sorted.slice(pageStart, pageStart + TOP_FANS_PER_PAGE);
+
+  const entries: TopFansEntry[] = pageSlice.map((row) => ({
+    fanId: row.id,
+    name: row.name,
+    videosCount: row.videos_count ?? 0,
+    messagesCount: row.messages_count ?? 0,
+    videosWithPaidEvents: null,
+    paidEventCount: null,
+    spendProb: row.spend_prob ?? null,
   }));
 
-  return NextResponse.json({ entries, totalCount: count ?? 0 });
+  return NextResponse.json({ entries, totalCount: sorted.length });
 }

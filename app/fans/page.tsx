@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { BrandLink } from "@/components/brand-link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { ScoreBreakdown, SignalBreakdown } from "@/lib/scoring";
+import type { TopFansEntry } from "@/app/api/top-fans/route";
 import { TopFansSection } from "./top-fans-section";
 import { FanTableSection } from "./fan-table-section";
 
@@ -11,13 +11,6 @@ export const dynamic = "force-dynamic";
 
 const TOP_FANS_PER_PAGE = 10;
 const FANS_PER_PAGE = 20;
-
-type FanScoreRow = {
-  fan_id: string;
-  score: number;
-  breakdown: ScoreBreakdown;
-  computed_at: string;
-};
 
 export default async function FansPage() {
   const supabase = await createSupabaseServerClient();
@@ -29,24 +22,21 @@ export default async function FansPage() {
     redirect("/login");
   }
 
+  // Fetch total fans count, first page of fan table, and top supporters in parallel
   const [
     { count: totalFansCount },
-    { data: nudgeScores, count: totalNudgeCount },
-    { data: supporterScores, count: totalSupporterCount },
+    { data: supporterRows, count: totalSupporterCount },
     { data: fans },
   ] = await Promise.all([
     supabase.from("fans").select("id", { count: "exact", head: true }),
     supabase
-      .from("fan_scores")
-      .select("fan_id, score, breakdown, computed_at", { count: "exact" })
-      .eq("score_type", "nudge")
-      .order("score", { ascending: false })
-      .range(0, TOP_FANS_PER_PAGE - 1),
-    supabase
-      .from("fan_scores")
-      .select("fan_id, score, breakdown, computed_at", { count: "exact" })
-      .eq("score_type", "supporter")
-      .order("score", { ascending: false })
+      .from("fan_stats")
+      .select(
+        "id, name, videos_count, messages_count, videos_with_paid_events, paid_event_count, spend_prob",
+        { count: "exact" },
+      )
+      .eq("has_paid_event", true)
+      .order("paid_event_count", { ascending: false, nullsFirst: false })
       .range(0, TOP_FANS_PER_PAGE - 1),
     supabase
       .from("fan_stats")
@@ -59,36 +49,87 @@ export default async function FansPage() {
 
   const totalTrackedFans = totalFansCount ?? 0;
 
-  async function resolveTopFans(rows: FanScoreRow[] | null) {
-    const scoredRows = (rows ?? []) as FanScoreRow[];
-    const nameMap = new Map<string, string | null>();
-    const spendProbMap = new Map<string, number>();
-    if (scoredRows.length > 0) {
-      const fanIds = scoredRows.map((r) => r.fan_id);
-      const [{ data: nameRows }, { data: predRows }] = await Promise.all([
-        supabase.from("fans").select("id, name").in("id", fanIds),
-        supabase
-          .from("fan_predictions")
-          .select("fan_id, spend_prob")
-          .in("fan_id", fanIds),
-      ]);
-      for (const f of nameRows ?? []) nameMap.set(f.id, f.name);
-      for (const p of predRows ?? []) spendProbMap.set(p.fan_id, p.spend_prob);
-    }
-    return scoredRows.map((row) => ({
-      fanId: row.fan_id,
-      name: nameMap.get(row.fan_id) ?? null,
-      score: row.score,
-      signals: (row.breakdown.signals ?? []) as SignalBreakdown[],
-      computedAt: row.computed_at,
-      spendProb: spendProbMap.get(row.fan_id) ?? null,
-    }));
-  }
+  const initialSupporterFans: TopFansEntry[] = (supporterRows ?? []).map(
+    (row) => ({
+      fanId: row.id,
+      name: row.name,
+      videosCount: row.videos_count ?? 0,
+      messagesCount: row.messages_count ?? 0,
+      videosWithPaidEvents: row.videos_with_paid_events ?? null,
+      paidEventCount: row.paid_event_count ?? null,
+      spendProb: row.spend_prob ?? null,
+    }),
+  );
 
-  const [initialNudgeFans, initialSupporterFans] = await Promise.all([
-    resolveTopFans(nudgeScores as FanScoreRow[] | null),
-    resolveTopFans(supporterScores as FanScoreRow[] | null),
-  ]);
+  // Nudge fans: chatted in last stream, didn't spend — sequential (stream ID needed first)
+  let initialNudgeFans: TopFansEntry[] = [];
+  let totalNudgeCount = 0;
+
+  const { data: lastMsg } = await supabase
+    .from("messages")
+    .select("yt_video_id")
+    .order("time", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (lastMsg?.yt_video_id) {
+    const lastStreamId = lastMsg.yt_video_id;
+
+    const [{ data: streamFanRows }, { data: paidFanRows }] = await Promise.all([
+      supabase
+        .from("messages")
+        .select("fan_id")
+        .eq("yt_video_id", lastStreamId),
+      supabase
+        .from("messages")
+        .select("fan_id")
+        .eq("yt_video_id", lastStreamId)
+        .not("paid_event_type", "is", null),
+    ]);
+
+    const allFanIds = [
+      ...new Set((streamFanRows ?? []).map((r) => r.fan_id as string)),
+    ];
+    const paidFanIds = new Set(
+      (paidFanRows ?? []).map((r) => r.fan_id as string),
+    );
+    const nudgeFanIds = allFanIds.filter((id) => !paidFanIds.has(id));
+    totalNudgeCount = nudgeFanIds.length;
+
+    if (nudgeFanIds.length > 0) {
+      const CHUNK = 100;
+      const chunks = Array.from(
+        { length: Math.ceil(nudgeFanIds.length / CHUNK) },
+        (_, i) => nudgeFanIds.slice(i * CHUNK, (i + 1) * CHUNK),
+      );
+      const chunkResults = await Promise.all(
+        chunks.map((ids) =>
+          supabase
+            .from("fan_stats")
+            .select("id, name, videos_count, messages_count, spend_prob")
+            .in("id", ids),
+        ),
+      );
+      const statsRows = chunkResults.flatMap((r) => r.data ?? []);
+
+      const sorted = (statsRows ?? []).slice().sort((a, b) => {
+        if (a.spend_prob === null && b.spend_prob === null) return 0;
+        if (a.spend_prob === null) return 1;
+        if (b.spend_prob === null) return -1;
+        return b.spend_prob - a.spend_prob;
+      });
+
+      initialNudgeFans = sorted.slice(0, TOP_FANS_PER_PAGE).map((row) => ({
+        fanId: row.id,
+        name: row.name,
+        videosCount: row.videos_count ?? 0,
+        messagesCount: row.messages_count ?? 0,
+        videosWithPaidEvents: null,
+        paidEventCount: null,
+        spendProb: row.spend_prob ?? null,
+      }));
+    }
+  }
 
   const initialFans = (fans ?? []).map((row) => ({
     id: row.id,
@@ -138,7 +179,7 @@ export default async function FansPage() {
         <TopFansSection
           type="nudge"
           initialEntries={initialNudgeFans}
-          initialTotal={totalNudgeCount ?? 0}
+          initialTotal={totalNudgeCount}
         />
 
         <TopFansSection

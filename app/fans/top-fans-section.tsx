@@ -1,100 +1,49 @@
 "use client";
 
 import { useState } from "react";
-import { formatTimestamp } from "@/lib/utils";
-import type { SignalBreakdown } from "@/lib/scoring";
+import type { TopFansEntry } from "@/app/api/top-fans/route";
 import { TopFansSkeleton } from "./skeletons";
 
-export type TopFansEntry = {
-  fanId: string;
-  name: string | null;
-  score: number;
-  signals: SignalBreakdown[];
-  computedAt: string;
-  spendProb: number | null;
-};
+export type { TopFansEntry };
 
 const TOP_FANS_PER_PAGE = 10;
 
-function RankedFanCard({
-  rank,
-  entry,
-  type,
-}: {
-  rank: number;
-  entry: TopFansEntry;
-  type: "nudge" | "supporter";
-}) {
-  const displayName = entry.name?.trim() || "Anonymous Fan";
-  const topSignals = [...entry.signals]
-    .sort((a, b) => b.contribution - a.contribution)
-    .slice(0, 3);
-
-  const scoreColor =
-    type === "supporter"
-      ? entry.score >= 70
-        ? "border-amber-500/30 bg-amber-500/20 text-amber-300"
-        : entry.score >= 40
-          ? "border-yellow-600/30 bg-yellow-600/20 text-yellow-400"
-          : "border-slate-600 bg-slate-700/50 text-slate-400"
-      : entry.score >= 70
-        ? "border-emerald-500/30 bg-emerald-500/20 text-emerald-300"
-        : entry.score >= 40
-          ? "border-amber-500/30 bg-amber-500/20 text-amber-300"
-          : "border-slate-600 bg-slate-700/50 text-slate-400";
-
-  return (
-    <li className="flex items-start gap-4 rounded-2xl border border-slate-800 bg-slate-950/40 px-4 py-3">
-      <span className="mt-0.5 w-5 shrink-0 text-right font-mono text-sm text-slate-500">
-        {rank}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-medium text-white">{displayName}</span>
-          <span
-            className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${scoreColor}`}
-          >
-            {entry.score}
-          </span>
-          {entry.spendProb !== null && (
-            <span
-              className={`shrink-0 rounded-full border px-2 py-0.5 text-xs tabular-nums ${
-                entry.spendProb >= 0.7
-                  ? "border-violet-500/30 bg-violet-500/15 text-violet-300"
-                  : entry.spendProb >= 0.4
-                    ? "border-fuchsia-600/30 bg-fuchsia-600/15 text-fuchsia-400"
-                    : "border-slate-700 bg-slate-800/60 text-slate-500"
-              }`}
-            >
-              {Math.round(entry.spendProb * 100)}% spend
-            </span>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {topSignals.map((signal) => (
-            <span
-              key={signal.signal}
-              className="rounded-full border border-slate-700 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-300"
-            >
-              {signal.label}
-            </span>
-          ))}
-        </div>
-      </div>
-    </li>
-  );
+function SpendProbCell({ value }: { value: number | null }) {
+  if (value === null) return <span className="text-slate-700">—</span>;
+  const pct = Math.round(value * 100);
+  const cls =
+    value >= 0.7
+      ? "text-violet-300"
+      : value >= 0.4
+        ? "text-fuchsia-400"
+        : "text-slate-500";
+  return <span className={`tabular-nums ${cls}`}>{pct}%</span>;
 }
 
 const SECTION_COPY = {
   nudge: {
     title: "Fans to Nudge",
-    subtitle: "Ranked by conversion likelihood",
+    subtitle:
+      "Chatted in the last stream but made no paid action · sorted by spend likelihood",
+    empty: "No fans from the last stream found.",
   },
   supporter: {
     title: "Top Supporters",
-    subtitle: "Ranked by support level · call out and thank these fans",
+    subtitle: "All-time supporters · sorted by support count",
+    empty: "No supporters tracked yet.",
   },
 };
+
+const NUDGE_COLS = ["#", "Name", "Videos", "Messages", "Spend Prob"];
+const SUPPORTER_COLS = [
+  "#",
+  "Name",
+  "Videos",
+  "Videos w/ Paid",
+  "Messages",
+  "Paid Messages",
+  "Spend Prob",
+];
 
 export function TopFansSection({
   type,
@@ -113,6 +62,7 @@ export function TopFansSection({
   const totalPages = Math.max(1, Math.ceil(total / TOP_FANS_PER_PAGE));
   const rankOffset = (currentPage - 1) * TOP_FANS_PER_PAGE;
   const copy = SECTION_COPY[type];
+  const cols = type === "nudge" ? NUDGE_COLS : SUPPORTER_COLS;
 
   async function goToPage(page: number) {
     setIsLoading(true);
@@ -133,42 +83,73 @@ export function TopFansSection({
 
   return (
     <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="mb-4 flex items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-white">{copy.title}</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            {entries.length > 0
-              ? `${copy.subtitle} · scored ${formatTimestamp(entries[0].computedAt)}`
-              : "Scores are computed every 6 hours via a background job."}
-          </p>
+          <p className="mt-1 text-sm text-slate-400">{copy.subtitle}</p>
         </div>
         {total > 0 && (
-          <span className="text-xs text-slate-500">{total} fans ranked</span>
+          <span className="text-xs text-slate-500">{total} fans</span>
         )}
       </div>
 
       {entries.length === 0 ? (
-        <div className="mt-4 flex min-h-36 flex-col items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-800 bg-slate-950/40 text-sm text-slate-500">
-          <span>Scores not yet computed.</span>
-          <span className="text-xs">
-            Trigger a run:{" "}
-            <code className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-slate-300">
-              POST /api/compute-scores
-            </code>
-          </span>
+        <div className="flex min-h-36 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-800 bg-slate-950/40 text-sm text-slate-500">
+          {copy.empty}
         </div>
       ) : (
         <>
-          <ol className="mt-4 flex flex-col gap-2">
-            {entries.map((entry, index) => (
-              <RankedFanCard
-                key={entry.fanId}
-                rank={rankOffset + index + 1}
-                entry={entry}
-                type={type}
-              />
-            ))}
-          </ol>
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
+              <thead>
+                <tr className="text-slate-400">
+                  {cols.map((col) => (
+                    <th
+                      key={col}
+                      className="border-b border-slate-800 px-4 py-3 font-medium"
+                    >
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((entry, index) => {
+                  const displayName = entry.name?.trim() || "Anonymous Fan";
+                  const rank = rankOffset + index + 1;
+                  return (
+                    <tr key={entry.fanId} className="text-slate-200">
+                      <td className="border-b border-slate-900 px-4 py-4 font-mono text-xs text-slate-500">
+                        {rank}
+                      </td>
+                      <td className="border-b border-slate-900 px-4 py-4 font-medium">
+                        {displayName}
+                      </td>
+                      <td className="border-b border-slate-900 px-4 py-4 tabular-nums">
+                        {entry.videosCount}
+                      </td>
+                      {type === "supporter" && (
+                        <td className="border-b border-slate-900 px-4 py-4 tabular-nums">
+                          {entry.videosWithPaidEvents ?? 0}
+                        </td>
+                      )}
+                      <td className="border-b border-slate-900 px-4 py-4 tabular-nums">
+                        {entry.messagesCount}
+                      </td>
+                      {type === "supporter" && (
+                        <td className="border-b border-slate-900 px-4 py-4 tabular-nums">
+                          {entry.paidEventCount ?? 0}
+                        </td>
+                      )}
+                      <td className="border-b border-slate-900 px-4 py-4">
+                        <SpendProbCell value={entry.spendProb} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
           <div className="mt-4 flex items-center justify-between gap-4 border-t border-slate-800 pt-4">
             <div className="text-sm text-slate-500">
