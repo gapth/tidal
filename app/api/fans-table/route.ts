@@ -1,19 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { parsePageNumber } from "@/lib/utils";
-import { aggregateMessageStatsByFanId } from "@/lib/fan-stats";
-
-type FanRow = {
-  id: string;
-  yt_id: string;
-  name: string | null;
-};
-
-type MessageRow = {
-  fan_id: string;
-  yt_video_id: string;
-  time: string;
-};
 
 export type FanSummary = {
   id: string;
@@ -22,7 +9,27 @@ export type FanSummary = {
   videosCount: number;
   messagesCount: number;
   latestMessageTime: string | null;
+  spendProb: number | null;
 };
+
+export type SortCol =
+  | "name"
+  | "yt_id"
+  | "videos_count"
+  | "messages_count"
+  | "latest_message_time"
+  | "spend_prob";
+
+export type SortDir = "asc" | "desc";
+
+const VALID_SORT_COLS = new Set<string>([
+  "name",
+  "yt_id",
+  "videos_count",
+  "messages_count",
+  "latest_message_time",
+  "spend_prob",
+]);
 
 const FANS_PER_PAGE = 20;
 
@@ -39,49 +46,39 @@ export async function GET(req: NextRequest) {
   const page = parsePageNumber(
     req.nextUrl.searchParams.get("page") ?? undefined,
   );
+  const rawCol = req.nextUrl.searchParams.get("sortCol") ?? "name";
+  const rawDir = req.nextUrl.searchParams.get("sortDir") ?? "asc";
+
+  const sortCol: SortCol = VALID_SORT_COLS.has(rawCol)
+    ? (rawCol as SortCol)
+    : "name";
+  const ascending = rawDir !== "desc";
+
   const pageStart = (page - 1) * FANS_PER_PAGE;
   const pageEnd = pageStart + FANS_PER_PAGE - 1;
 
-  const { data: fans, count, error: fansError } = await supabase
-    .from("fans")
-    .select("id, yt_id, name", { count: "exact" })
-    .order("name", { ascending: true })
-    .order("yt_id", { ascending: true })
+  const { data, count, error } = await supabase
+    .from("fan_stats")
+    .select(
+      "id, yt_id, name, videos_count, messages_count, latest_message_time, spend_prob",
+      { count: "exact" },
+    )
+    .order(sortCol, { ascending, nullsFirst: false })
     .range(pageStart, pageEnd);
 
-  if (fansError) {
-    return NextResponse.json({ error: fansError.message }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const pagedFans = (fans ?? []) as FanRow[];
-  const fanIds = pagedFans.map((f) => f.id);
+  const fans: FanSummary[] = (data ?? []).map((row) => ({
+    id: row.id,
+    ytId: row.yt_id,
+    name: row.name,
+    videosCount: row.videos_count,
+    messagesCount: row.messages_count,
+    latestMessageTime: row.latest_message_time,
+    spendProb: row.spend_prob ?? null,
+  }));
 
-  const { data: messages, error: messagesError } = fanIds.length
-    ? await supabase
-        .from("messages")
-        .select("fan_id, yt_video_id, time")
-        .in("fan_id", fanIds)
-    : { data: [], error: null };
-
-  if (messagesError) {
-    return NextResponse.json({ error: messagesError.message }, { status: 500 });
-  }
-
-  const statsByFanId = aggregateMessageStatsByFanId(
-    (messages ?? []) as MessageRow[],
-  );
-
-  const fanSummaries: FanSummary[] = pagedFans.map((fan) => {
-    const stats = statsByFanId.get(fan.id);
-    return {
-      id: fan.id,
-      ytId: fan.yt_id,
-      name: fan.name,
-      videosCount: stats?.videos.size ?? 0,
-      messagesCount: stats?.messagesCount ?? 0,
-      latestMessageTime: stats?.latestMessageTime ?? null,
-    };
-  });
-
-  return NextResponse.json({ fans: fanSummaries, totalCount: count ?? 0 });
+  return NextResponse.json({ fans, totalCount: count ?? 0 });
 }

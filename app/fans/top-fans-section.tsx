@@ -11,6 +11,7 @@ export type TopFansEntry = {
   score: number;
   signals: SignalBreakdown[];
   computedAt: string;
+  spendProb: number | null;
 };
 
 const TOP_FANS_PER_PAGE = 10;
@@ -55,6 +56,19 @@ function RankedFanCard({
           >
             {entry.score}
           </span>
+          {entry.spendProb !== null && (
+            <span
+              className={`shrink-0 rounded-full border px-2 py-0.5 text-xs tabular-nums ${
+                entry.spendProb >= 0.7
+                  ? "border-violet-500/30 bg-violet-500/15 text-violet-300"
+                  : entry.spendProb >= 0.4
+                    ? "border-fuchsia-600/30 bg-fuchsia-600/15 text-fuchsia-400"
+                    : "border-slate-700 bg-slate-800/60 text-slate-500"
+              }`}
+            >
+              {Math.round(entry.spendProb * 100)}% spend
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap gap-1.5">
           {topSignals.map((signal) => (

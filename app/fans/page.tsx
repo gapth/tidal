@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { BrandLink } from "@/components/brand-link";
 import { SignOutButton } from "@/components/sign-out-button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { aggregateMessageStatsByFanId } from "@/lib/fan-stats";
 import type { ScoreBreakdown, SignalBreakdown } from "@/lib/scoring";
 import { TopFansSection } from "./top-fans-section";
 import { FanTableSection } from "./fan-table-section";
@@ -18,18 +17,6 @@ type FanScoreRow = {
   score: number;
   breakdown: ScoreBreakdown;
   computed_at: string;
-};
-
-type FanRow = {
-  id: string;
-  yt_id: string;
-  name: string | null;
-};
-
-type MessageRow = {
-  fan_id: string;
-  yt_video_id: string;
-  time: string;
 };
 
 export default async function FansPage() {
@@ -62,10 +49,11 @@ export default async function FansPage() {
       .order("score", { ascending: false })
       .range(0, TOP_FANS_PER_PAGE - 1),
     supabase
-      .from("fans")
-      .select("id, yt_id, name")
-      .order("name", { ascending: true })
-      .order("yt_id", { ascending: true })
+      .from("fan_stats")
+      .select(
+        "id, yt_id, name, videos_count, messages_count, latest_message_time, spend_prob",
+      )
+      .order("name", { ascending: true, nullsFirst: false })
       .range(0, FANS_PER_PAGE - 1),
   ]);
 
@@ -74,15 +62,18 @@ export default async function FansPage() {
   async function resolveTopFans(rows: FanScoreRow[] | null) {
     const scoredRows = (rows ?? []) as FanScoreRow[];
     const nameMap = new Map<string, string | null>();
+    const spendProbMap = new Map<string, number>();
     if (scoredRows.length > 0) {
-      const { data: nameRows } = await supabase
-        .from("fans")
-        .select("id, name")
-        .in(
-          "id",
-          scoredRows.map((r) => r.fan_id),
-        );
+      const fanIds = scoredRows.map((r) => r.fan_id);
+      const [{ data: nameRows }, { data: predRows }] = await Promise.all([
+        supabase.from("fans").select("id, name").in("id", fanIds),
+        supabase
+          .from("fan_predictions")
+          .select("fan_id, spend_prob")
+          .in("fan_id", fanIds),
+      ]);
       for (const f of nameRows ?? []) nameMap.set(f.id, f.name);
+      for (const p of predRows ?? []) spendProbMap.set(p.fan_id, p.spend_prob);
     }
     return scoredRows.map((row) => ({
       fanId: row.fan_id,
@@ -90,6 +81,7 @@ export default async function FansPage() {
       score: row.score,
       signals: (row.breakdown.signals ?? []) as SignalBreakdown[],
       computedAt: row.computed_at,
+      spendProb: spendProbMap.get(row.fan_id) ?? null,
     }));
   }
 
@@ -98,30 +90,15 @@ export default async function FansPage() {
     resolveTopFans(supporterScores as FanScoreRow[] | null),
   ]);
 
-  // Resolve fan-table initial data
-  const pagedFans = (fans ?? []) as FanRow[];
-  const fanIds = pagedFans.map((f) => f.id);
-  const { data: messages } = fanIds.length
-    ? await supabase
-        .from("messages")
-        .select("fan_id, yt_video_id, time")
-        .in("fan_id", fanIds)
-    : { data: [] };
-
-  const statsByFanId = aggregateMessageStatsByFanId(
-    (messages ?? []) as MessageRow[],
-  );
-  const initialFans = pagedFans.map((fan) => {
-    const stats = statsByFanId.get(fan.id);
-    return {
-      id: fan.id,
-      ytId: fan.yt_id,
-      name: fan.name,
-      videosCount: stats?.videos.size ?? 0,
-      messagesCount: stats?.messagesCount ?? 0,
-      latestMessageTime: stats?.latestMessageTime ?? null,
-    };
-  });
+  const initialFans = (fans ?? []).map((row) => ({
+    id: row.id,
+    ytId: row.yt_id,
+    name: row.name,
+    videosCount: row.videos_count ?? 0,
+    messagesCount: row.messages_count ?? 0,
+    latestMessageTime: row.latest_message_time ?? null,
+    spendProb: row.spend_prob ?? null,
+  }));
 
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
