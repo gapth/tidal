@@ -1,264 +1,184 @@
 # Tidal — Product Requirements Document (v0.1)
 
 **Owner:** Gap
-**Status:** Draft — scaffolding, expect revisions
-**Last updated:** 2026-04-17
+**Status:** Draft, expect revisions
+**Last updated:** 2026-04-21
 **Audience:** Internal founding team
 
 ---
 
 ## 1. Summary
 
-Tidal helps content creators turn passive viewers into paying fans. Our first wedge is **YouTube live streamers**, who already have monetization surfaces (Super Chat, channel memberships, gifted memberships) but lack the tooling to know *which* viewers are on the cusp of converting — and what to do about it in the moment.
+### 1.1 Mission
 
-We ingest live chat activity, build a per-fan profile over time, score likelihood-to-convert, and surface actionable nudges both (a) in a dashboard between streams and (b) in a live companion view during streams.
+Tidal helps live streamers recognize the fans who keep showing up. We surface the loyal regulars the chat buries — so creators can reward them on-stream and turn consistent presence into lasting support.
 
-## 2. Problem
+### 1.2 Jobs to be done
 
-Live streamers on YouTube operate on intuition. The top fans they thank on-stream are usually the already-converted ones (members, frequent Super Chatters) or whoever happened to post the most chat messages that day. The *near-converters* — viewers who show up every stream, engage consistently, and would convert with the smallest nudge — are largely invisible in YouTube's native UI.
+**Main job.** When I'm live and chat is moving faster than I can track, I want to recognize and reward the fans who show up for me consistently — in the moment, while I'm streaming — so my community feels seen and supports me in return.
 
-Streamers lose revenue and lose the chance to deepen relationships with high-intent fans. They also burn out trying to track this manually.
+**Functional jobs,** in order of priority. The product's center of gravity is #1; the others exist to make #1 work without demanding effort outside stream time.
 
-## 3. Target user (v1)
+1. **In-stream recognition.** When I go live, I want to know which fans currently in chat are long-time regulars, so I don't default to thanking only the loudest or the already-paying. _(Primary — this is the product's differentiation.)_
+2. **Silent preparation.** When I'm not streaming, I want Tidal to quietly work on what it already knows from my last stream — refining scores, letting stale signals fade, readying the next set of prompts — so it's ready to help the moment I go live again, without me having to do anything.
+3. **Zero-config readiness.** When I'm about to start a stream, I want Tidal to be ready without configuration or review, so I can focus on the stream itself.
+4. **Optional reflection.** When a stream ends, I want a lightweight summary of who I recognized and how it landed — but I shouldn't have to open it to benefit.
 
-- **YouTube live streamers** with recurring live streams (at least weekly) and an active live chat (~50+ messages per stream).
-- English-speaking to start (for sentiment / intent analysis simplicity).
-- Mid-tier creators (1K–500K subs) are the sweet spot: big enough to have signal, small enough that they can't manually track fans.
+**Emotional jobs.**
 
-## 4. Goals & non-goals for v1
+- I want to feel fair to my community — not like I'm rewarding only the people who happened to yell loudest.
+- I want to feel present on stream, not mentally juggling a spreadsheet of names.
+- I want to feel my revenue reflects real relationships, not extraction.
 
-**Goals**
-- Connect a streamer's YouTube account and track a selected channel's live activity.
-- Build a persistent, cross-stream view of fans on that channel.
-- Produce a ranked list of "nudge-worthy" fans with a defensible scoring explanation.
-- Deliver actionable in-stream recommendations during a live broadcast.
+**Social jobs.**
 
-**Non-goals (v1)**
-- Multi-platform (Twitch, TikTok, Kick) — parked for later.
-- Off-platform payment tracking (Patreon, Ko-fi) — parked.
-- Automated messaging / DM to fans — parked; nudges are surfaced *to the streamer* only.
-- Team / multi-user accounts — single-seat only.
-- Mobile app — web-only at launch.
+- I want to be known as a creator who notices people — the one whose community feels like a place, not a funnel.
 
-## 5. Key user journeys
+**Product principle that falls out of this.** Tidal lives _during_ the stream and runs silently the rest of the time. Every ask of the creator outside of streaming hours is a cost to be justified.
 
-**J1. First-run setup**
-Streamer signs up → Google OAuth → selects which of their YouTube channels Tidal should monitor → sees an empty "we'll start tracking from here" dashboard.
+### 1.3 Product overview
 
-**J2. Between streams — "who should I focus on next time?"**
-Streamer opens dashboard → sees a ranked list of fans with a conversion score, a short explanation ("has chatted in 7 of your last 8 streams, never Super Chatted, recently asked you a direct question"), and suggested actions.
+Our first wedge is **YouTube live streamers**, who already have monetization surfaces (Super Chat, channel memberships, gifted memberships) but lack the tooling to know _which_ loyal viewers deserve a moment of recognition — and no way to act on that knowledge while chat is moving.
 
-**J3. During stream — "what should I do right now?"**
-Streamer opens the live companion view next to OBS → sees fans currently in chat with high conversion scores, with a one-line prompt ("Shout out @username — they've been here 6 weeks running and haven't Super Chatted yet").
+We ingest live chat activity, build a per-fan profile over time, score each fan's loyalty and likelihood-to-convert, and surface actionable prompts in a live companion view while the creator streams. A between-stream dashboard exists to build trust in the scoring and support reflection, but the product lives _during_ the broadcast.
 
-**J4. Post-stream reflection**
-After the stream ends, streamer gets a quick recap: who was present, who was called out, whether any called-out fans converted.
+## 2. Strategy
 
-## 6. Feature specs (v1)
+### 2.1 Why this, why now
 
-### F1. Google OAuth + channel selection
+Four market shifts make Tidal plausible in 2026 in a way it wasn't two years ago.
 
-- Sign in with Google (YouTube scopes: `youtube.readonly`, `youtube.force-ssl` as needed for live chat read).
-- On first connect, list the channels the authenticated account manages.
-- User picks one or more channels to monitor. They can change this later in settings.
-- Store refresh token securely; re-auth flow when scopes need to widen.
+First, **Twitch lifted simulcast restrictions in October 2023.** Before then, Twitch Partners were contractually barred from streaming simultaneously to other platforms. The multi-platform creator at scale is a post-2023 phenomenon — the market we bet on didn't exist in its current form until recently.
 
-**Acceptance:** A user can sign up, connect, and select a channel in under 60 seconds. Tokens persist and auto-refresh.
+Second, **multi-streaming tool adoption grew ~35% in 2024.** Restream, StreamYard, and Castr usage spiked after the Twitch policy change. Streamlabs' Q3 2024 report called simulcasting "non-negotiable" for creators competing in a fragmenting landscape.
 
-### F2. Automatic live-chat tracking
+Third, **monetization surfaces across live platforms matured.** YouTube's Super Chat and membership APIs, Twitch's Bits and subscription events, Kick's subscriptions and tipping — all expose structured monetization events via official APIs. Real per-stream revenue justifies a dedicated CRM layer.
 
-- Detect when a selected channel goes live (poll `liveBroadcasts` or `search` for active broadcasts on a cadence).
-- When live, stream chat via `liveChatMessages.list` until the broadcast ends.
-- Normalize each message into `{fan_id, channel_id, broadcast_id, timestamp, text, super_chat_amount?, membership_event?}`.
-- Resolve fans by their YouTube channel ID so identity persists across streams.
-- Back-fill does **not** happen for chat (YouTube's live chat is not queryable after the stream). What we miss before the user connects is gone. We're explicit about this in the UI.
+Fourth, **lightweight language signal got cheap.** LLMs make intent detection, question identification, and direct-address classification tractable without an ML team or infra. We can enhance a transparent heuristic score with language understanding that would have required specialized investment a year ago.
 
-**Acceptance:** For any live broadcast that starts after channel is connected, ≥95% of public chat messages are captured and attributed to a stable fan ID.
+### 2.2 Wedge — YouTube live, mid-tier, recurring, solo
 
-### F3. Between-stream insights dashboard
+Our beachhead is mid-tier (1K–500K subscribers) YouTube live streamers who broadcast at least weekly and operate solo or with minimal support staff. Recurring cadence is a precondition for the product working at all — our scoring depends on multi-stream observation.
 
-- A ranked list of fans on the connected channel.
-- Each fan card shows: display name, avatar, conversion score (0–100), top signal drivers, recent activity summary, suggested nudge.
-- Filters: "Never Super Chatted", "Not a member", "Last seen < 7d", etc.
-- Detail view: full chat history with the streamer, timeline of appearances, monetization history.
+**Why YouTube first.** The honest reason is logistical: we can recruit friendly YouTube creators faster than Twitch/Kick ones, and the YouTube Data API (including `liveChatMessages.list`) is mature and permissive enough to build on. There is a strategic layer on top — YouTube is a common _secondary_ platform for Twitch-primary creators, which gives us a Trojan-horse path into the Twitch-primary segment once we add Twitch support. YouTube's structured monetization (explicit Super Chat amounts, clear membership events) also lets us validate scoring against real revenue outcomes from day one.
 
-**Scoring signals (v1, heuristic — not ML):**
-- Stream attendance frequency (last N streams)
-- Chat volume per appearance
-- Recency of last appearance
-- Presence of direct-address messages ("great stream", questions, @mentions of the streamer)
-- Absence of monetization events (member / Super Chat / gifted member)
-- Duration of relationship (weeks since first observed)
+**Why not Twitch first.** Twitch has a more mature tool ecosystem (Streamlabs, StreamElements, Streamer.bot), raising the differentiation bar at launch. We also have thinner creator access there. Twitch is the right second platform, not the right first.
 
-We compute a transparent weighted score and **always show the "why"**. Black-box scoring is a non-starter for this audience — creators need to trust it.
+**Why not Kick or TikTok.** Kick has a real API but a smaller creator base concentrated in specific niches (gaming, regional) — a later addition. TikTok Live has no official chat API; third-party tools rely on reverse-engineered WebSocket scraping that is ToS-hostile and brittle. TikTok Live is explicitly excluded from our roadmap — rationale in §2.7.
 
-**Acceptance:** Dashboard renders in <2s for a channel with 10K tracked fans. "Why this score" is visible on every ranked fan.
+**ICP scope: broad with targeted messaging.** We serve all mid-tier YouTube live streamers who meet the cadence threshold, whether they're currently single-platform or primary-plus. We pitch the in-stream recognition story to the single-platform segment and the cross-platform memory story to primary-plus creators. One product, two narratives — depending on who we're talking to.
 
-### F4. In-stream companion view
+### 2.3 Positioning
 
-- A lightweight web view the streamer keeps open during broadcast (second monitor or phone).
-- Shows: current viewers in chat who are in the tracked-fan set, sorted by conversion score.
-- Each entry has a single-line action prompt ("Thank them on-air", "Ask them how their week went — they mentioned being stressed last stream").
-- Real-time: updates as new fans appear in chat.
-- Snooze / dismiss per fan for the current stream.
+**Tidal is the cross-platform relationship memory for live streamers.** We start on YouTube; we're architected multi-platform from the data model up.
 
-**Acceptance:** Latency from fan sending a chat message to appearing in companion view: <10s at p95. Streamer can act on a nudge in a single glance.
+We are not:
 
-## 7. Supporting infrastructure (not user-facing, but required)
+- an overlay or alert tool (Streamlabs, StreamElements operate on _events_; we operate on _people_)
+- a chatbot or automation tool (we never message fans on the creator's behalf)
+- a VOD analytics tool (YouTube Studio, VidIQ, TubeBuddy serve that market)
+- a tool for brand / corporate channels
+- a tool for mega-creators with managers or dedicated community teams
 
-### S1. Manual video/stream ingestion tool (pre-OAuth)
+Who we beat:
 
-Before F1–F4 exist in a usable state, we need test data. We build an **internal admin tool** that:
-- Accepts a YouTube video URL or channel URL.
-- Pulls chat replay (for completed streams where available via `liveChatMessages` during the live window, or by running a dummy listener against a public live stream we don't own).
-- Populates our data model with real signal.
+- **The status quo.** The creator's own memory plus their mod's pinned note. This is the primary competitor. We win when a creator who would have shouted out the loudest chatter shouts out the most loyal one instead.
+- **Streamlabs / StreamElements and peers.** They alert on events, not relationships. Complementary, not replaceable — creators can run both.
+- **Native platform UI (YouTube Studio, Twitch dashboard).** Shows the firehose, not the people who matter.
 
-This lets us develop scoring, dashboard, and companion view *without* needing anyone to sign in. It also becomes our eval harness.
+### 2.4 Core bet and moat
 
-**Note:** YouTube live chat is not replayable after the fact via the public API. So this tool is really a *live listener* we point at any public broadcast — our own test channel, a friendly creator, or a large public stream we monitor for stress-testing volume.
+**The bet.** The dominant creator pattern is "primary-plus" — one main platform with simulcast to 1–2 others — and Tidal is the only tool that gives a creator a single pane of glass on all their live-stream audiences. Each platform's audience stays siloed (we never infer that two accounts across platforms are the same person), but the creator sees one workflow across everywhere they go live: prepare, recognize, reflect — regardless of which platform they're on today. Workflow consolidation itself is the value; identity stitching is not the bet.
 
-### S2. Fan identity resolution
+**The moat compounds two ways.**
 
-Fans are keyed by YouTube channel ID. Display name changes are tracked but don't fragment the record. Anonymous / "removed channel" users are bucketed separately and excluded from scoring.
+1. **Fan-memory longitude, per platform.** The longer a creator uses Tidal, the deeper our per-fan memory on each platform they stream to — attendance, chat history, monetization, direct-address moments. Switching to a competitor means starting from zero on every platform.
+2. **Trust and platform compliance.** We respect every platform's ToS — no persistent cross-platform user profiling, no inferred identity linking, no data resale, no opaque scoring. Competitors that race to the bottom on viewer tracking lose API access. Creators don't switch to a tool that could one day cost them their integration.
 
-### S3. Data model sketch (first pass)
+**Optional: creator-declared cross-platform linking.** A creator who recognizes the same person on two platforms can tag them manually. Tidal then surfaces the combined history, but the link is creator-asserted, never inferred by us. Extends the product's value without crossing ToS lines. Implemented only if creators ask for it.
 
-```
-streamers (our users)         → id, google_sub, email, created_at
-connections                   → id, streamer_id, yt_channel_id, scopes, refresh_token, connected_at
-broadcasts                    → id, yt_channel_id, yt_broadcast_id, started_at, ended_at
-fans                          → id, yt_channel_id (fan's own), first_seen_at, display_name, avatar_url
-fan_channel_stats             → fan_id, tracked_yt_channel_id, streams_attended, messages_total,
-                                last_seen_at, super_chat_total_usd, is_member, score, score_breakdown
-chat_messages                 → id, broadcast_id, fan_id, ts, text, super_chat_amount_usd, membership_type
-nudges                        → id, fan_id, broadcast_id, type, suggested_at, acted_on
-```
+**What we're betting against.** A well-resourced single-platform competitor (a Streamlabs feature, a Twitch-native tool, or an upstart) entrenching before we ship multi-platform. We think the post-October-2023 window is open and adoption is active — but we could be wrong, and we have ~18 months before first-mover advantage on Twitch starts to bite.
 
-## 8. Technical approach (lean, cloud-agnostic)
+**Counter-signals we respect.** Multi-streaming is growing but not universal. Some top creators (TimTheTatman, Dr Lupo) re-consolidated to Twitch after their exclusivity contracts ended. Kick's 2024 growth was fueled partly by single-platform regional deals. Not everyone multi-streams; our bet is that _enough_ mid-tier creators do, and that the share is growing.
 
-- **Frontend:** Next.js (single repo, app router). Tailwind. Deploy on Vercel free tier until it hurts.
-- **Backend API:** Node/TypeScript in the same Next.js app (API routes) for v0. Split into a standalone service only when background work demands it.
-- **Database:** Postgres. Neon or Supabase free tier. One schema, no ORMs beyond Prisma/Drizzle.
-- **Background workers:** Long-running chat listeners can't live in serverless (they need persistent connections). Run them on a single small VM (Fly.io / Railway / Hetzner — whichever is cheapest at the time). One worker process per active broadcast; coordinated via a simple DB-backed job queue.
-- **Auth:** NextAuth with Google provider; store refresh tokens encrypted at rest.
-- **Real-time for companion view:** Server-Sent Events from the worker through the web app. Avoid WebSockets / Pusher until we have a reason.
-- **No ML infra for v1.** Scoring is a deterministic weighted function computed on write. This keeps us cheap and explainable.
-- **Observability:** Logflare or similar free-tier log sink; a single dashboard of "active broadcasts, messages/sec, errors".
-- **Secrets:** Env vars via the host's secret manager. No Vault, no KMS yet.
+### 2.5 Business model
 
-**Key cost risks to watch:**
-- YouTube Data API quota (10K units/day free). `liveChatMessages.list` is cheap (1 unit/call) but polling adds up across many concurrent broadcasts. We'll request a quota increase early.
-- Persistent worker VM: ~$5–10/mo baseline is fine for dozens of concurrent broadcasts.
+**Freemium plus paid unlock.**
 
-## 9. Development plan
+- **Free tier.** One connected channel (any supported platform), full in-stream companion view, basic scoring, 90-day history retention.
+- **Paid tier.** Multiple connected channels (including across platforms as we add them), extended history retention, email digest, advanced nudge types, post-stream recap with attribution analytics.
 
-Optimized to get to a launchable v1 with minimum spend and without blocking on user recruitment.
+Pricing specifics (monthly vs annual, exact $) deferred to Phase 5. Principle: anchor the free tier on the thing we want to spread — the in-stream moment — and make the paid tier align naturally with the multi-platform moat.
 
-### Phase 0 — Foundations (Week 1–2)
+Subscription is the only structurally viable model. Every major platform's developer ToS (YouTube, Twitch, Kick) restricts selling raw chat data, viewer rosters, or derivative analytics as standalone products. We can charge creators for _tools_ that use their audience data, as long as the value is in the tool and not in the data commodity.
 
-**Goal:** Ingest real chat data from a public stream without any user having to sign in. Ship nothing external.
+Attribution-based pricing (% of tracked Super Chat or membership revenue) is rejected for v1. Three reasons: (a) it creates perverse incentives to optimize for conversion over relationships, undermining the mission; (b) it requires attribution infrastructure out of scope for v1; (c) it reframes us as a growth-hack tool, at odds with positioning. Revisit only if freemium economics fail.
 
-- Stand up repo, Next.js app shell, Postgres, one dev environment.
-- Build the **manual ingestion tool (S1)**: CLI command `tidal ingest <video_url>` that attaches to a live broadcast's chat and writes to our DB.
-- Data model v0 (§7.3) migrated in.
-- Point it at 2–3 public live streams (ideally ones we have permission to observe, e.g. a friendly creator's channel) and accumulate real data for ~a week.
+### 2.6 Go-to-market
 
-**Exit criterion:** We have ≥10K real chat messages across ≥3 broadcasts in our DB.
+Two channels, both founder-driven, explicitly _not_ betting on referral loops or partner distribution in v1.
 
-### Phase 1 — Offline insights (Week 3–4)
+**Direct founder outreach (Phase 0–3, primary).** Hand-recruit the first 30–50 creators via DMs, emails, warm intros, and relevant events where affordable. Every early creator is also a feedback source — we learn faster from them than from any dashboard. Target: 10 paying creators by end of Phase 5.
 
-**Goal:** Prove we can produce a "nudge-worthy fans" list that a streamer would find interesting. No product UI needed — just conviction.
+**Content and SEO (compounding, starts Phase 3).** Brand-led content under a platform-agnostic angle: not "YouTube live streaming tips" (too narrow, indistinguishable from existing creator advice) but _what loyalty looks like in chat data_ and _the economics of being noticed_. Topics like "why your regulars don't Super Chat," "the half-life of a Super Chatter," "what chat velocity tells you about community depth." Positions Tidal as the thought leader on live-stream audience relationships and compounds over 12–18 months. It's the only path to Phase 6+ growth without viral loops we're not yet building.
 
-- Implement scoring function (§6.F3) as a SQL view or a small service.
-- Build a bare-bones internal dashboard (protected route, no auth polish) that ranks fans for a given channel.
-- Manually review top-20 lists with a cofounder / friendly creator: "would you thank these people?"
-- Iterate scoring weights based on qualitative feedback.
+We explicitly decline:
 
-**Exit criterion:** A friendly creator, shown our top-20 list for their channel, says "yes, these are the right people" ≥70% of the time.
+- Creator-to-creator referral as a plan (unavoidable if it happens naturally, but not load-bearing).
+- Partnerships with other creator tools (adds dependency, slows iteration).
+- Paid acquisition (low intent for creator tools; unknown CAC).
 
-### Phase 2 — OAuth + self-serve (Week 5–6)
+**Known gap.** Founder outreach saturates around ~50 creators; content compounds slowly. There's a Phase 4–5 growth gap we'll revisit when we have a "moment worth sharing" (e.g., first Super Chat attributed to a Tidal nudge). Flagged, not solved.
 
-**Goal:** A real streamer can sign up and be tracked without our involvement.
+### 2.7 Compliance as strategy
 
-- Implement F1 (Google OAuth + channel selection).
-- Replace the manual ingestion tool with an auto-scheduler that detects when connected channels go live and spins up a listener.
-- Add a minimal marketing page + waitlist.
-- Harden token refresh, handle quota errors gracefully.
+Platform ToS is not a pre-launch legal task — it's a design constraint that shapes decisions upstream.
 
-**Exit criterion:** One external creator signs up end-to-end, their next live stream is captured automatically, and the data looks right 24h later.
+- **Storage is minimally necessary.** 90-day rolling retention for raw chat messages; aggregated signals (per-fan scores, counts, profile records) retained while the creator is a customer plus 30 days after disconnect.
+- **Deletion on request is a first-class flow.** Viewer-initiated deletion requests propagate within 30 days. Creator disconnect triggers scheduled deletion of all associated data.
+- **No cross-creator data sharing.** Each creator's data is siloed. No ML models trained across customer data. No aggregated audience products, ever.
+- **No cross-platform identity inference.** Fan profiles are scoped to the platform they were observed on. We never infer that two accounts across platforms are the same person. Creators may manually assert links; Tidal never asserts them on the creator's behalf.
+- **Subscription model only.** Our revenue comes from creator tools. Platform-sourced data is inside the tool, never the product.
+- **No scraping when an API exists.** We integrate via official OAuth APIs on every platform that has one. TikTok Live — with no official chat API — is excluded from our roadmap. Re-examine only if TikTok publishes an official API.
 
-### Phase 3 — Dashboard polish (Week 7–8)
+This posture is not only compliance hygiene. It's the moat against competitors who race to the bottom on viewer profiling and lose platform access. Trust compounds — see also kill conditions in §2.8.
 
-**Goal:** The between-stream insights experience (F3) is good enough to keep users coming back.
+### 2.8 Explicit bets, non-negotiables, and kill conditions
 
-- Fan list UI with filters, detail view, score-breakdown tooltip.
-- Email digest: "Your top 5 nudge-worthy fans for this week's stream."
-- Basic settings (disconnect channel, change scope).
-- Telemetry: track which fans users click into, which nudges they act on.
+**We bet that:**
 
-**Exit criterion:** 3 external creators using Tidal between streams; ≥1 reports they changed on-air behavior because of it.
+- The primary-plus creator pattern is common and growing among mid-tier live streamers.
+- Creators value "one CRM for all my streams" even when per-platform fan profiles stay siloed — workflow consolidation alone is worth the switch.
+- Creators will pay for relationship tools and in-stream attention support, not standalone analytics.
+- Platform ToS posture stays in roughly current shape across the 18–24 months we need to establish moat.
 
-### Phase 4 — Live companion (Week 9–10)
+**We are not:**
 
-**Goal:** F4 lives. The streamer has a reason to keep Tidal open *while* streaming.
+- an overlay or alert tool
+- a chatbot or automation product
+- a VOD analytics tool
+- a tool for brand or corporate channels
+- a tool for mega-creators with managers or teams
 
-- Real-time companion view, SSE pipeline.
-- Per-fan nudge prompts.
-- Post-stream recap: who we flagged, who got called out, who converted.
-- Instrument conversion attribution (Super Chat / new member in the X minutes after a nudge was surfaced).
+**We will not:**
 
-**Exit criterion:** At least one creator reports a Super Chat that, in their view, happened *because* of a Tidal nudge. This is the moment we have a story to tell.
+- Automate messaging to fans on the creator's behalf.
+- Use opaque or black-box scoring — every score carries a transparent "why."
+- Build cross-creator viewer profiles, even internally.
+- Ship features that demand creator attention outside of streaming hours.
+- Scrape any platform that offers an API.
+- Infer that two accounts on different platforms belong to the same person — cross-platform linking is creator-declared, never automatic.
+- Support TikTok Live until it has an official API and a compliance path.
 
-### Phase 5 — Launch readiness (Week 11–12)
+**Kill conditions** (any one triggers strategic re-evaluation, not automatic shutdown):
 
-- Billing (Stripe; simple monthly tier).
-- Onboarding polish, help docs, status page.
-- Tighter quota management, multi-channel support for single streamer.
-- Legal: ToS, privacy policy (we're storing chat messages about third parties — get this right), YouTube API ToS compliance review.
-- Public launch to a warm list of creators.
-
-**Exit criterion:** 10 paying creators, each running at least 4 streams/month through Tidal.
-
-## 10. Metrics
-
-**North-star:** Number of fans called out via a Tidal nudge who convert (Super Chat, membership) within 7 days.
-
-**Supporting metrics:**
-- Daily active streamers
-- % of connected channels whose last live stream was successfully captured
-- Nudge action rate (nudges surfaced → nudges acted on)
-- Conversion lift: monetization rate of nudged fans vs. non-nudged comparable fans
-- Score quality: user feedback thumbs-up/down on ranked fans
-
-## 11. Risks & open questions
-
-**Risks**
-- **API quota.** Scaling to many concurrent broadcasts may blow past default quotas. Mitigation: request increase early, add smart polling backoff, batch where possible.
-- **Creepiness.** Surfacing "this person is likely to pay you if you flatter them" can feel gross. Framing matters — we emphasize gratitude and relationship, not manipulation. Worth a values doc.
-- **YouTube ToS.** Storing chat content about third parties has limits. Legal review before launch.
-- **Scoring defensibility.** A bad top-20 list in front of a creator kills trust on day one. Invest early in evals.
-- **Platform risk.** If YouTube ships a native equivalent, we're in trouble. Multi-platform is our hedge, but not for v1.
-
-**Open questions**
-- How do we handle channels that rarely go live (say, once a month)? Scoring decay?
-- Do we want to surface non-chat signals (likes, comments on VODs) in v1, or strictly live chat?
-- How do we treat bots / mods / the streamer's own alt accounts?
-- Should the companion view live as a browser extension, OBS dock, or standalone web page? (Lean: start with standalone web page; evaluate OBS dock in Phase 4.)
-- Pricing: flat monthly vs. percentage of tracked Super Chat revenue?
-
-## 12. Appendix — "what we're explicitly punting"
-
-For our own sanity, so we don't argue about these every week:
-
-- Multi-platform (Twitch / Kick / TikTok)
-- Off-platform monetization (Patreon, Ko-fi, Discord tiers)
-- Fan CRM features (notes, tags, custom fields) — probably post-launch
-- Automated messaging to fans — never without a lot more thought
-- Sentiment analysis as a scoring signal — heuristic-only for v1
-- Team accounts / moderator access
-- Mobile app
-- Analytics for non-live content
+- YouTube or Twitch ships a first-party equivalent and it's genuinely good.
+- Our API access is revoked due to a compliance audit failure on any platform.
+- Freemium economics don't work at 100 paying creators.
+- The primary-plus pattern turns out materially smaller or shrinking faster than believed.
 
 ---
 
-*This is a living document. Update in place; don't fork.*
+_Downstream sections (problem statement, target user, goals & non-goals, user journeys, feature specs, infrastructure, technical approach, development plan, metrics, risks, appendix) have been removed pending further discussion. They'll be rewritten to flow from the mission, JTBD, and strategy above once those upstream decisions are settled._
+
+_This is a living document. Update in place; don't fork._
