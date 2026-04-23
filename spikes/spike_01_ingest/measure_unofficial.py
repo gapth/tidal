@@ -65,16 +65,16 @@ def main():
                 for item in chat.get().sync_items():
                     received_at_ms = time.time() * 1000
 
-                    # pytchat exposes datetime as a string; parse to epoch ms
+                    # item.timestamp is epoch milliseconds — use directly to avoid
+                    # timezone ambiguity (item.datetime is local time, not UTC).
                     try:
-                        published_at_str = str(item.datetime)
-                        # pytchat datetime format: "2024-01-01 12:00:00"
-                        published_dt = datetime.strptime(published_at_str, "%Y-%m-%d %H:%M:%S")
-                        published_dt = published_dt.replace(tzinfo=timezone.utc)
-                        published_at_ms = published_dt.timestamp() * 1000
+                        published_at_ms = float(item.timestamp)
+                        published_at_str = datetime.fromtimestamp(
+                            published_at_ms / 1000, tz=timezone.utc
+                        ).isoformat()
                     except Exception:
                         published_at_ms = received_at_ms
-                        published_at_str = datetime.utcnow().isoformat()
+                        published_at_str = datetime.now(tz=timezone.utc).isoformat()
 
                     latency_ms = received_at_ms - published_at_ms
                     latencies.append(latency_ms)
