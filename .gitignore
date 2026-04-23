@@ -39,6 +39,7 @@ supabase/seed.sql
 # Python
 __pycache__/
 *.pyc
+.venv/
 
 # ML artifacts
 ml/
