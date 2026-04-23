@@ -12,6 +12,7 @@ Categories: commentary, talk, reaction, gaming, watchalong, other
 """
 
 import argparse
+import fcntl
 import json
 import sys
 import time
@@ -34,6 +35,7 @@ HERE = Path(__file__).parent
 DATASET_DIR = HERE / "dataset"
 RAW_DIR = DATASET_DIR / "raw"
 MANIFEST_FILE = DATASET_DIR / "manifest.json"
+MANIFEST_LOCK_FILE = DATASET_DIR / "manifest.lock"
 
 VALID_CATEGORIES = {"commentary", "talk", "reaction", "gaming", "watchalong", "other"}
 
@@ -71,6 +73,16 @@ def upsert_manifest(manifest: dict, entry: dict) -> None:
             streams[i] = entry
             return
     streams.append(entry)
+
+
+def locked_update_manifest(entry: dict) -> None:
+    """Re-read, upsert, and write the manifest under an exclusive file lock."""
+    DATASET_DIR.mkdir(parents=True, exist_ok=True)
+    with open(MANIFEST_LOCK_FILE, "w") as lock_f:
+        fcntl.flock(lock_f, fcntl.LOCK_EX)
+        manifest = load_manifest()
+        upsert_manifest(manifest, entry)
+        save_manifest(manifest)
 
 
 def collect(video_id: str, category: str, notes: str, force: bool) -> None:
@@ -167,8 +179,7 @@ def collect(video_id: str, category: str, notes: str, force: bool) -> None:
         "raw_file": str(out_file.relative_to(HERE)),
     }
 
-    upsert_manifest(manifest, manifest_entry)
-    save_manifest(manifest)
+    locked_update_manifest(manifest_entry)
 
 
 def main() -> None:
