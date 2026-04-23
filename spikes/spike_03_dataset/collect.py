@@ -149,7 +149,9 @@ def collect(video_id: str, category: str, notes: str, force: bool) -> None:
                     message_count += 1
 
                     if message_count % 500 == 0:
-                        print(f"  {message_count} messages collected...")
+                        print(f"\n  {message_count} messages collected...")
+                    elif message_count % 10 == 0:
+                        print(".", end="", flush=True)
 
             except Exception as e:
                 print(f"[warn] error reading batch: {e}")
