@@ -87,6 +87,12 @@ async function main() {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[measure_api] poll ${pollCount} error: ${msg}`);
       if (msg.includes("Live chat has ended")) break;
+      if (msg.includes("quotaExceeded")) {
+        console.error(
+          "[measure_api] daily quota exhausted — resets at midnight Pacific. Stopping.",
+        );
+        break;
+      }
       // On transient error, wait 10s and retry with same token (no messages lost)
       const gapStart = Date.now();
       await sleep(10_000);
