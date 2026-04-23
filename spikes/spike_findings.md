@@ -113,9 +113,106 @@ When the product matures and we need an SLA, apply for a YouTube API quota incre
 
 ---
 
-## Spike 2 — LLM Quality
+## Spike 2 — LLM Pipeline Latency and Quality
 
-_Not yet run_
+### What we ran
+
+- **Data:** 240 unique messages from Spike 1 (real automotive/car-deal stream, ~16 msgs/min, ~10 min)
+- **Pipelines:** A (window-only), B (cluster-first, 2 LLM calls), C (pre-filter + interpret)
+- **Models:** gpt-4o-mini, gpt-4o, gpt-4-turbo (C only)
+- **Label set:** 30 hand-labeled "important moments" — superchats (3), direct questions (8), repeat questions (11), service questions (3), interesting topics (4), client feedback (1)
+- **Replay mechanics:** messages sorted by publishedAt, replayed at 2.5s poll ticks (matching Spike 1's observed interval)
+
+---
+
+### Evidence
+
+#### Full results table
+
+| Run               | Prompts | Calls/min | P50 ms   | P95 ms   | P99 ms   | Recall    | Precision |
+| ----------------- | ------- | --------- | -------- | -------- | -------- | --------- | --------- |
+| A 90s gpt-4o-mini | 32      | 2.0       | 1840     | 2304     | 2584     | **1.000** | **1.000** |
+| A 60s gpt-4o-mini | 32      | 2.0       | 1765     | 2407     | 2410     | **1.000** | 0.906     |
+| A 60s gpt-4o      | 32      | 2.0       | **1487** | **2006** | **2168** | **1.000** | 0.906     |
+| B gpt-4o-mini     | 32      | 2.0       | 5327     | 9174     | 9831     | **1.000** | 0.906     |
+| B gpt-4o          | 32      | 2.0       | 5238     | 7308     | 8445     | **1.000** | 0.906     |
+| A 30s gpt-4o-mini | 32      | 2.0       | 2305     | 3775     | 3844     | **1.000** | 0.719     |
+| **C gpt-4o-mini** | **21**  | **1.4**   | **669**  | **873**  | **974**  | 0.967     | **1.000** |
+| C gpt-4o          | 21      | 1.4       | 757      | 1175     | 1236     | 0.967     | **1.000** |
+| C gpt-4-turbo     | 21      | 1.4       | 1381     | 2244     | 2602     | 0.967     | **1.000** |
+
+#### Total end-to-end latency (ingestion + LLM)
+
+Ingestion latency from Spike 1: p50 2.6s, p95 3.9s, p99 4.3s.
+
+| Pipeline       | LLM p50 | LLM p95 | **Total p50** | **Total p95** | Within 5s target?   |
+| -------------- | ------- | ------- | ------------- | ------------- | ------------------- |
+| C gpt-4o-mini  | 669ms   | 873ms   | **3.3s**      | **4.8s**      | ✓ p95 touches limit |
+| C gpt-4-turbo  | 1381ms  | 2244ms  | **4.0s**      | **6.1s**      | ✗ p95 over          |
+| A gpt-4o (60s) | 1487ms  | 2006ms  | **4.1s**      | **5.9s**      | ✗ p95 over          |
+| B gpt-4o       | 5238ms  | 7308ms  | **7.8s**      | **11.2s**     | ✗ clearly over      |
+
+#### Window size sweep (Pipeline A, gpt-4o-mini)
+
+| Window  | P50 ms   | Recall    | Precision |
+| ------- | -------- | --------- | --------- |
+| 30s     | 2305     | 1.000     | 0.719     |
+| 60s     | 1765     | 1.000     | 0.906     |
+| **90s** | **1840** | **1.000** | **1.000** |
+
+90s is the sweet spot — at 16 msgs/min it puts ~24 messages in view, enough to detect patterns without over-triggering. 30s gives poor precision (too noisy) and 60s loses some repeated-question signals.
+
+#### Pipeline C trigger breakdown (21 calls over 10 min)
+
+| Trigger type    | Fires                             |
+| --------------- | --------------------------------- |
+| creator_mention | 12                                |
+| repeat_question | 7                                 |
+| superchat       | 3                                 |
+| energy_spike    | 1 (co-fired with creator_mention) |
+
+#### Sample prompts — Pipeline C, gpt-4o-mini
+
+| Time     | Trigger         | Prompt                                                                                 |
+| -------- | --------------- | -------------------------------------------------------------------------------------- |
+| 22:26:57 | superchat       | Acknowledge @MakeMoneyTrucking's $5 superchat and answer the best price on a Raptor R. |
+| 22:34:37 | repeat_question | Address the question directly and provide a clear overview of your services.           |
+| 22:35:22 | superchat       | Acknowledge @wanton47's $2 superchat about whether there will be more car deals today. |
+| 22:38:20 | repeat_question | Address the repeated question about dealership sabotage and share your experience.     |
+| 22:41:00 | repeat_question | Address the question about the 2.5k service directly and provide a clear explanation.  |
+
+Prompts are concise (one sentence), correctly identify the trigger, and tell the creator exactly what to do.
+
+#### Missed moment (Pipeline C)
+
+C missed **1/30 labeled moments** — the first occurrence of the negative equity question (22:30:17). At that tick, only one instance existed in the window so the `repeat_question` heuristic did not fire. C correctly caught the 2nd and 3rd occurrence at 22:33:04 and 22:34:03.
+
+This is the structural blind spot: novel first-instance questions that don't mention the creator and aren't superchats.
+
+---
+
+### Verdict
+
+**(a) Latency we can realistically hit:** **~3.3s p50 total (ingestion + LLM)** using Pipeline C + gpt-4o-mini. P95 is ~4.8s — right at the 5s target. Pipeline A is ~4–6s and Pipeline B is ~8–11s. gpt-4o-mini is the right model: gpt-4o adds ~100ms for no measurable quality gain on Pipeline C's small focused windows; gpt-4-turbo doubles latency with no benefit.
+
+**(b) Precision and recall:** Pipeline C: **recall 96.7%, precision 100%**. Pipeline A (90s): recall 100%, precision 100%, but calls more often (2/min vs 1.4/min) and misses the 5s latency target at p95.
+
+**(c) Winning pipeline:** **Pipeline C (pre-filter + interpret)**. It's 3x faster than A, 10x faster than B, achieves perfect precision, and generates 30% fewer prompts (less fatigue). The heuristics (superchat, repeat_question, creator_mention, energy_spike) catch the most time-critical moments with zero false alarms. Pipeline B is a clear loser: two serial LLM calls double latency without improving quality.
+
+**(d) Biggest remaining quality risk:** **Novel first-occurrence questions**. Pipeline C only fires when a heuristic triggers; an important standalone question that doesn't mention the creator, isn't a superchat, and hasn't repeated yet will be silently skipped. In this 10-minute log that was 1/30 moments. In a longer or more sparse stream, this category could grow.
+
+**Recommended mitigation:** Hybrid approach — run Pipeline C for real-time heuristic alerts, plus a Pipeline A background sweep every ~3 minutes. The A sweep catches novel important questions Pipeline C's heuristics miss; the C path handles latency-critical moments within the 5s window. Combined, they cover both categories without overwhelming the creator.
+
+---
+
+### Open questions before v1
+
+1. **Heuristic quality on noisier streams:** This stream was coherent English car-chat. Does the `repeat_question` Jaccard heuristic hold up on streams with more slang, emojis, or multiple languages?
+2. **Creator name detection:** The heuristic looks for "tomi" and "delivrd" hardcoded. For a multi-creator product, this needs to be per-user configurable.
+3. **Prompt fatigue at scale:** 1.4 prompts/min over an 8-hour stream = ~672 total prompts. Even if all are actionable, that's likely too many. The right cadence for a real product needs user research.
+4. **Quality ceiling question:** All Pipeline C prompts were functionally similar across gpt-4o-mini, gpt-4o, and gpt-4-turbo on these short focused windows. The quality ceiling for this task appears to be in the heuristic pre-filter (signal selection), not the LLM. Better heuristics > bigger model.
+
+---
 
 ## Spike 3 — Signal Extraction from Noisy Chat
 
