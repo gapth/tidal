@@ -214,6 +214,69 @@ This is the structural blind spot: novel first-instance questions that don't men
 
 ---
 
-## Spike 3 — Signal Extraction from Noisy Chat
+## Spike 3 — Reference Chat Dataset
 
-_Not yet run_
+**Goal:** Assemble a small, realistic corpus of recorded live chat from completed YouTube streams to develop and evaluate the LLM pipeline offline.
+
+### What we built
+
+A repeatable data-collection script (`spikes/spike_03_dataset/collect.py`) that:
+
+- Accepts one video ID per invocation; accumulates a corpus across repeated runs
+- Uses **pytchat** (already validated in Spike 1) to fetch the full chat replay of a completed stream — pytchat auto-detects replay mode and fetches all messages as fast as possible, not in real time
+- Fetches video title + channel via the **YouTube oEmbed API** (no auth required)
+- Saves each stream as `dataset/raw/<VIDEO_ID>.jsonl`, one message per line
+- Upserts an entry into `dataset/manifest.json` with title, channel, category, message count, and chat duration
+
+**Usage:**
+
+```bash
+cd spikes/spike_03_dataset
+pip install -r requirements.txt
+python collect.py <VIDEO_ID> --category commentary --notes "optional annotation"
+# Re-run with different video IDs to grow the corpus; already-collected IDs are skipped
+```
+
+### Message schema
+
+Each line in the JSONL files contains:
+
+```json
+{
+  "video_id": "...",
+  "message_id": "...",
+  "timestamp_ms": 1704067200000,
+  "timestamp_iso": "2024-01-01T12:00:00+00:00",
+  "author": "Display Name",
+  "author_id": "UCxxxxxxxx",
+  "text": "message text",
+  "is_member": false,
+  "is_moderator": false,
+  "type": "textMessage",
+  "amount": null
+}
+```
+
+### Format decisions
+
+- **JSONL per stream** — one file per video ID, easy to stream and filter without loading everything into memory
+- **manifest.json** — flat index of all collected streams with category labels and stats; serves as the corpus-level summary
+- **oEmbed for metadata** — avoids needing a YouTube API key; returns title and channel name reliably for public videos
+- **pytchat for replay** — same library as live ingestion (Spike 1), no quota cost, no auth; replay mode terminates naturally when all messages are delivered
+
+### Status
+
+Tool is complete. Corpus not yet collected — needs 8–12 video IDs across ICP content categories fed in. Target categories: commentary, talk, reaction, gaming, watchalong.
+
+### Corpus collection criteria
+
+- Completed (archived) public livestreams only
+- 500–5,000 concurrent viewers preferred — below that chat is too thin, above that too noisy for early development
+- At least one stream per category; solo or minimal-staff creators preferred
+
+---
+
+### Open questions before corpus is complete
+
+1. **pytchat replay completeness:** Does pytchat reliably fetch 100% of messages in replay mode, or does it drop messages for long streams (3hr+) the way live mode occasionally does?
+2. **Category coverage:** Do we have enough streams in the watchalong and reaction categories? These may be harder to find at the 500–5k viewer tier.
