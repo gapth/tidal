@@ -1,7 +1,8 @@
 "use client";
 
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 function parseVideoId(input: string): string | null {
   const s = input.trim();
@@ -21,9 +22,15 @@ function parseVideoId(input: string): string | null {
 
 export default function HomePage() {
   const router = useRouter();
+  const supabase = useRef(createSupabaseBrowserClient());
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  async function handleLogout() {
+    await supabase.current.auth.signOut();
+    router.push("/login");
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -60,6 +67,12 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <button
+        onClick={handleLogout}
+        className="absolute top-4 right-6 text-sm text-gray-400 hover:text-gray-600"
+      >
+        Log out
+      </button>
       <div className="max-w-md w-full px-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Tidal</h1>
         <p className="text-gray-500 mb-8 text-sm">

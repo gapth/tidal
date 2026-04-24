@@ -1,6 +1,7 @@
 "use client";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 type PromptRow = {
@@ -87,10 +88,16 @@ export default function SessionPage({
 }: {
   params: Promise<{ session_id: string }>;
 }) {
+  const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<PromptRow[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const supabase = useRef(createSupabaseBrowserClient());
+
+  async function handleLogout() {
+    await supabase.current.auth.signOut();
+    router.push("/login");
+  }
   const channelRef = useRef<ReturnType<typeof supabase.current.channel> | null>(
     null,
   );
@@ -162,6 +169,12 @@ export default function SessionPage({
         <span className="ml-auto text-xs text-gray-400">
           {prompts.length} prompt{prompts.length !== 1 ? "s" : ""}
         </span>
+        <button
+          onClick={handleLogout}
+          className="text-sm text-gray-400 hover:text-gray-600"
+        >
+          Log out
+        </button>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-3">
