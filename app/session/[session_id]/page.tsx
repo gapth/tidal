@@ -83,6 +83,28 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diff / 3600)}h ago`;
 }
 
+async function stopSession(sessionId: string) {
+  await fetch("/api/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
+  }).catch(() => {});
+}
+
+async function resumeSession(sessionId: string) {
+  const res = await fetch("/api/resume", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(
+      (body as { error?: string }).error ?? `Server error ${res.status}`,
+    );
+  }
+}
+
 export default function SessionPage({
   params,
 }: {
@@ -92,6 +114,8 @@ export default function SessionPage({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<PromptRow[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [stopped, setStopped] = useState(false);
+  const [resumeError, setResumeError] = useState<string | null>(null);
   const supabase = useRef(createSupabaseBrowserClient());
 
   async function handleLogout() {
@@ -106,6 +130,14 @@ export default function SessionPage({
   useEffect(() => {
     params.then((p) => setSessionId(p.session_id));
   }, [params]);
+
+  // Stop the worker when navigating away
+  useEffect(() => {
+    if (!sessionId) return;
+    return () => {
+      stopSession(sessionId);
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -149,6 +181,23 @@ export default function SessionPage({
     };
   }, [sessionId]);
 
+  async function handleStop() {
+    if (!sessionId) return;
+    setStopped(true);
+    await stopSession(sessionId);
+  }
+
+  async function handleResume() {
+    if (!sessionId) return;
+    setResumeError(null);
+    try {
+      await resumeSession(sessionId);
+      setStopped(false);
+    } catch (err) {
+      setResumeError(err instanceof Error ? err.message : "Failed to resume");
+    }
+  }
+
   async function dismiss(id: string) {
     setDismissed((prev) => new Set([...prev, id]));
     await supabase.current
@@ -169,6 +218,24 @@ export default function SessionPage({
         <span className="ml-auto text-xs text-gray-400">
           {prompts.length} prompt{prompts.length !== 1 ? "s" : ""}
         </span>
+        {stopped ? (
+          <button
+            onClick={handleResume}
+            className="text-sm text-green-600 hover:text-green-800 font-medium"
+          >
+            Resume
+          </button>
+        ) : (
+          <button
+            onClick={handleStop}
+            className="text-sm text-red-500 hover:text-red-700 font-medium"
+          >
+            Stop
+          </button>
+        )}
+        {resumeError && (
+          <span className="text-xs text-red-500">{resumeError}</span>
+        )}
         <button
           onClick={handleLogout}
           className="text-sm text-gray-400 hover:text-gray-600"

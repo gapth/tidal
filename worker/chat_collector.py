@@ -7,6 +7,7 @@ elapse, whichever comes first. Sends None as a sentinel when the stream ends.
 
 import asyncio
 import logging
+import threading
 import time
 from collections import deque
 from typing import Any, Callable
@@ -25,10 +26,14 @@ _DEAD_STREAM_TIMEOUT_S = 30.0
 def _collect_blocking(
     video_id: str,
     on_batch: Callable[[list[Any] | None], None],
+    stop: threading.Event,
 ) -> None:
     """Blocking pytchat loop. Runs in a thread pool executor."""
     attempt = 0
     while attempt <= _MAX_RECONNECTS:
+        if stop.is_set():
+            return
+
         try:
             chat = pytchat.create(video_id=video_id, interruptable=False)
         except Exception as exc:
@@ -39,7 +44,7 @@ def _collect_blocking(
         batch_start = time.monotonic()
         dead_since: float | None = None
 
-        while True:
+        while not stop.is_set():
             if not chat.is_alive():
                 if dead_since is None:
                     dead_since = time.monotonic()
@@ -56,6 +61,8 @@ def _collect_blocking(
 
             data = chat.get()
             for item in data.sync_items():
+                if stop.is_set():
+                    return
                 batch.append(item)
                 if len(batch) >= _BATCH_SIZE:
                     on_batch(batch)
@@ -69,6 +76,9 @@ def _collect_blocking(
                 batch_start = time.monotonic()
 
             time.sleep(0.5)
+
+        if stop.is_set():
+            return
 
         # Reconnect logic
         attempt += 1
@@ -94,5 +104,12 @@ async def collect(
     are exhausted.
     """
     logger.info("Starting chat collection for session=%s video=%s", session_id, video_id)
-    await asyncio.to_thread(_collect_blocking, video_id, on_message_batch)
+    stop = threading.Event()
+    try:
+        await asyncio.to_thread(_collect_blocking, video_id, on_message_batch, stop)
+    except asyncio.CancelledError:
+        stop.set()
+        raise
+    finally:
+        stop.set()
     logger.info("Chat collection finished for session=%s", session_id)
