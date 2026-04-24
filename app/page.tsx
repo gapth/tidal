@@ -1,275 +1,105 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { BrandLink } from "@/components/brand-link";
-import { SignOutButton } from "@/components/sign-out-button";
-import { normalizeInterval } from "@/lib/utils";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
 
-type Message = {
-  ytId: string;
-  fanId: string;
-  name: string | null;
-  text: string | null;
-  time: string;
-};
-
-type PollResponse = {
-  nextPageToken: string | null;
-  messages: Message[];
-  error?: string;
-};
+function parseVideoId(input: string): string | null {
+  const s = input.trim();
+  // youtu.be/ID or youtu.be/live/ID
+  let m = s.match(/youtu\.be\/(?:live\/)?([A-Za-z0-9_-]{11})/);
+  if (m) return m[1];
+  // ?v=ID or &v=ID
+  m = s.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+  if (m) return m[1];
+  // /live/ID
+  m = s.match(/\/live\/([A-Za-z0-9_-]{11})/);
+  if (m) return m[1];
+  // bare 11-char ID
+  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+  return null;
+}
 
 export default function HomePage() {
-  const [videoId, setVideoId] = useState("");
-  const [intervalSeconds, setIntervalSeconds] = useState(30);
-  const [intervalInput, setIntervalInput] = useState("30");
-  const [isTracking, setIsTracking] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [totalFans, setTotalFans] = useState(0);
+  const router = useRouter();
+  const supabase = useRef(createSupabaseBrowserClient());
+  const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const nextPageTokenRef = useRef<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  async function handleLogout() {
+    await supabase.current.auth.signOut();
+    router.push("/login");
+  }
 
-    const fetchFansCount = async () => {
-      try {
-        const response = await fetch("/api/fans", { cache: "no-store" });
-        const data = (await response.json()) as {
-          totalFans?: number;
-          error?: string;
-        };
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
 
-        if (!response.ok) {
-          throw new Error(data.error ?? "Failed to load fan count.");
-        }
-
-        if (!cancelled) {
-          setTotalFans(data.totalFans ?? 0);
-        }
-      } catch (fetchError) {
-        if (!cancelled) {
-          setError(
-            fetchError instanceof Error
-              ? fetchError.message
-              : "Failed to load fan count.",
-          );
-        }
-      }
-    };
-
-    // When not tracking, do a one-time fan count refresh then exit.
-    if (!isTracking) {
-      void fetchFansCount();
-      return () => {
-        cancelled = true;
-      };
+    const videoId = parseVideoId(url);
+    if (!videoId) {
+      setError(
+        "Couldn't parse a video ID from that URL. Try pasting a YouTube URL or bare video ID.",
+      );
+      return;
     }
 
-    // Recursive polling loop: fetch new chat messages, upsert to DB, then schedule the next tick.
-    const poll = async () => {
-      try {
-        const response = await fetch("/api/poll", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            videoId,
-            nextPageToken: nextPageTokenRef.current,
-          }),
-        });
-
-        const data = (await response.json()) as PollResponse;
-
-        if (!response.ok) {
-          throw new Error(data.error ?? "Polling request failed.");
-        }
-
-        if (cancelled) {
-          return;
-        }
-
-        nextPageTokenRef.current = data.nextPageToken ?? null;
-        setMessages((current) => {
-          const knownIds = new Set(current.map((m) => m.ytId));
-          const newMessages = data.messages.filter((m) => !knownIds.has(m.ytId));
-          // Prepend new messages and cap at 250 to avoid unbounded memory growth.
-          return [...newMessages, ...current].slice(0, 250);
-        });
-        setError(null);
-        await fetchFansCount();
-      } catch (pollError) {
-        if (!cancelled) {
-          setError(
-            pollError instanceof Error
-              ? pollError.message
-              : "Polling request failed.",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          timeoutId = setTimeout(poll, intervalSeconds * 1000);
-        }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ youtubeUrl: url }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error ?? `Server error ${res.status}`,
+        );
       }
-    };
-
-    void poll();
-
-    return () => {
-      cancelled = true;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [intervalSeconds, isTracking, videoId]);
-
-  const toggleTracking = () => {
-    if (!isTracking) {
-      nextPageTokenRef.current = null;
-      setMessages([]);
-      setError(null);
+      const { session_id } = (await res.json()) as { session_id: string };
+      router.push(`/session/${session_id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+      setLoading(false);
     }
-
-    setIsTracking((current) => !current);
-  };
-
-  const commitIntervalInput = (value: string) => {
-    const next = normalizeInterval(value, intervalSeconds);
-    setIntervalSeconds(next);
-    setIntervalInput(String(next));
-  };
+  }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/50">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-2">
-              <BrandLink />
-              <h1 className="text-3xl font-semibold text-white">
-                YouTube Fan Tracker
-              </h1>
-              <p className="max-w-2xl text-sm text-slate-400">
-                The browser owns the polling loop, so each request stays short
-                and avoids long-running serverless execution.
-              </p>
-              <SignOutButton />
-            </div>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <button
+        onClick={handleLogout}
+        className="absolute top-4 right-6 text-sm text-gray-400 hover:text-gray-600"
+      >
+        Log out
+      </button>
+      <div className="max-w-md w-full px-6">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Tidal</h1>
+        <p className="text-gray-500 mb-8 text-sm">
+          Real-time sensemaking for live streams. Paste a YouTube live URL to
+          start.
+        </p>
 
-            <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/10 px-5 py-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">
-                Total Fans
-              </p>
-              <p className="mt-2 text-3xl font-semibold text-white">
-                {totalFans}
-              </p>
-              <Link
-                className="mt-4 inline-flex rounded-full border border-cyan-400/30 px-3 py-1.5 text-xs font-medium uppercase tracking-[0.18em] text-cyan-200 transition hover:border-cyan-300 hover:text-white"
-                href="/fans"
-              >
-                View Fans
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
-            <div className="space-y-5">
-              <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-300">
-                  Video ID
-                </span>
-                <input
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition focus:border-cyan-400"
-                  placeholder="Enter a live YouTube video ID"
-                  value={videoId}
-                  onChange={(event) => setVideoId(event.target.value)}
-                />
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-300">
-                  Poll Interval (seconds)
-                </span>
-                <input
-                  className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition focus:border-cyan-400"
-                  min={1}
-                  step={1}
-                  type="number"
-                  value={intervalInput}
-                  onBlur={(event) => commitIntervalInput(event.target.value)}
-                  onChange={(event) => setIntervalInput(event.target.value)}
-                />
-              </label>
-
-              <button
-                className="w-full rounded-2xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
-                disabled={!videoId.trim()}
-                onClick={toggleTracking}
-                type="button"
-              >
-                {isTracking ? "Stop Tracking" : "Start Tracking"}
-              </button>
-
-              {error ? (
-                <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                  {error}
-                </div>
-              ) : null}
-            </div>
-          </aside>
-
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-white">
-                  Live Messages
-                </h2>
-                <p className="text-sm text-slate-400">
-                  Latest messages are prepended as each poll completes.
-                </p>
-              </div>
-              <p className="text-sm text-slate-500">{messages.length} loaded</p>
-            </div>
-
-            <div className="h-[520px] space-y-3 overflow-y-auto pr-2">
-              {messages.length === 0 ? (
-                <div className="flex h-full items-center justify-center rounded-3xl border border-dashed border-slate-800 text-sm text-slate-500">
-                  No messages yet.
-                </div>
-              ) : (
-                messages.map((message) => (
-                  <article
-                    key={message.ytId}
-                    className="flex gap-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4"
-                  >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-xs font-semibold text-cyan-300">
-                      {(message.name?.trim() || "Anonymous Fan")
-                        .slice(0, 2)
-                        .toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="truncate text-sm font-medium text-white">
-                          {message.name?.trim() || "Anonymous Fan"}
-                        </p>
-                        <time className="shrink-0 text-xs text-slate-500">
-                          {new Date(message.time).toLocaleTimeString()}
-                        </time>
-                      </div>
-                      <p className="mt-1 text-sm leading-6 text-slate-300">
-                        {message.text?.trim() || "No message text"}
-                      </p>
-                    </div>
-                  </article>
-                ))
-              )}
-            </div>
-          </section>
-        </section>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input
+            type="text"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://youtube.com/watch?v=..."
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+            autoFocus
+            disabled={loading}
+          />
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <button
+            type="submit"
+            disabled={loading || !url.trim()}
+            className="w-full bg-gray-900 text-white py-3 rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? "Starting…" : "Start Watching"}
+          </button>
+        </form>
       </div>
-    </main>
+    </div>
   );
 }

@@ -2,10 +2,25 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 function isAuthRoute(pathname: string): boolean {
-  return pathname.startsWith("/login") || pathname.startsWith("/auth");
+  return (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth") ||
+    pathname === "/denied"
+  );
 }
 
-function buildLoginRedirect(request: NextRequest, pathname: string): NextResponse {
+function isAllowed(email: string | undefined): boolean {
+  const list = (process.env.ALLOWED_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return list.length === 0 || list.includes((email ?? "").toLowerCase());
+}
+
+function buildLoginRedirect(
+  request: NextRequest,
+  pathname: string,
+): NextResponse {
   const loginUrl = request.nextUrl.clone();
   loginUrl.pathname = "/login";
   loginUrl.searchParams.set("next", pathname);
@@ -36,7 +51,9 @@ export async function updateSession(request: NextRequest) {
         return request.cookies.getAll();
       },
       setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        cookiesToSet.forEach(({ name, value }) =>
+          request.cookies.set(name, value),
+        );
 
         response = NextResponse.next({ request });
 
@@ -59,6 +76,12 @@ export async function updateSession(request: NextRequest) {
 
   if (user && pathname === "/login") {
     return buildHomeRedirect(request);
+  }
+
+  if (user && !isAuthRoute(pathname) && !isAllowed(user.email)) {
+    const deniedUrl = request.nextUrl.clone();
+    deniedUrl.pathname = "/denied";
+    return NextResponse.redirect(deniedUrl);
   }
 
   return response;
