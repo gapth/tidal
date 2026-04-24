@@ -143,7 +143,17 @@ export default function SessionPage({
     if (!sessionId) return;
     const sb = supabase.current;
 
-    // Load existing prompts
+    // Load existing prompts and session status
+    sb.from("sessions")
+      .select("status")
+      .eq("id", sessionId)
+      .single()
+      .then(({ data }) => {
+        if (data?.status === "stopped" || data?.status === "ended") {
+          setStopped(true);
+        }
+      });
+
     sb.from("prompts")
       .select("*")
       .eq("session_id", sessionId)

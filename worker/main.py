@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import threading
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -14,7 +15,7 @@ logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
-active_sessions: dict[str, asyncio.Task] = {}
+active_sessions: dict[str, tuple[asyncio.Task, threading.Event]] = {}
 
 
 class StartBody(BaseModel):
@@ -35,25 +36,28 @@ async def health() -> dict:
 async def start(body: StartBody) -> dict:
     if body.session_id in active_sessions:
         raise HTTPException(status_code=409, detail="Session already active")
+    stop_event = threading.Event()
     task = asyncio.create_task(
-        run_session(body.video_id, body.session_id),
+        run_session(body.video_id, body.session_id, stop_event),
         name=f"session-{body.session_id}",
     )
-    active_sessions[body.session_id] = task
+    active_sessions[body.session_id] = (task, stop_event)
     logger.info("Started session %s for video %s", body.session_id, body.video_id)
     return {"status": "started", "session_id": body.session_id}
 
 
 @app.post("/api/stop")
 async def stop(body: StopBody) -> dict:
-    task = active_sessions.pop(body.session_id, None)
-    if task:
-        task.cancel()
+    entry = active_sessions.pop(body.session_id, None)
+    if entry:
+        task, stop_event = entry
+        stop_event.set()  # signal the thread directly
+        task.cancel()     # also cancel the asyncio wrapper
     db.update_session_status(body.session_id, "stopped")
     return {"status": "stopped"}
 
 
-async def run_session(video_id: str, session_id: str) -> None:
+async def run_session(video_id: str, session_id: str, stop_event: threading.Event) -> None:
     adapter = PipelineAdapter(session_id, video_id)
 
     def on_batch(messages: list[Any] | None) -> None:
@@ -75,7 +79,7 @@ async def run_session(video_id: str, session_id: str) -> None:
                     logger.warning("DB write error: %s", exc)
 
     try:
-        await chat_collector.collect(video_id, session_id, on_batch)
+        await chat_collector.collect(video_id, session_id, on_batch, stop=stop_event)
     except asyncio.CancelledError:
         logger.info("Session %s cancelled", session_id)
         db.update_session_status(session_id, "stopped")
