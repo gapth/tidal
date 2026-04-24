@@ -3,22 +3,28 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import {
-  getCookieValue,
-  clearCookie,
-  getSafeNext,
-  POST_LOGIN_COOKIE_NAME,
-} from "@/lib/browser-utils";
+
+const POST_LOGIN_COOKIE_NAME = "post_login_next";
+
+function getCookieValue(name: string): string | null {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function clearCookie(name: string): void {
+  document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
+
+function getSafeNext(next: string | null | undefined): string {
+  return next?.startsWith("/") ? next : "/";
+}
 
 type AuthCallbackHandlerProps = {
   code: string | null;
   next: string | null;
 };
 
-export function AuthCallbackHandler({
-  code,
-  next,
-}: AuthCallbackHandlerProps) {
+export function AuthCallbackHandler({ code, next }: AuthCallbackHandlerProps) {
   const router = useRouter();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 

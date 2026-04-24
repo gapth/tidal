@@ -1,10 +1,9 @@
 "use client";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import {
-  POST_LOGIN_COOKIE_NAME,
-  POST_LOGIN_COOKIE_MAX_AGE,
-} from "@/lib/browser-utils";
+
+const POST_LOGIN_COOKIE_NAME = "post_login_next";
+const POST_LOGIN_COOKIE_MAX_AGE = 300;
 
 type GoogleSignInButtonProps = {
   next?: string;

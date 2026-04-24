@@ -1,0 +1,86 @@
+import asyncio
+import logging
+import os
+from typing import Any
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+import worker.chat_collector as chat_collector
+import worker.db as db
+from worker.pipeline_adapter import PipelineAdapter
+
+logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO))
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+active_sessions: dict[str, asyncio.Task] = {}
+
+
+class StartBody(BaseModel):
+    video_id: str
+    session_id: str
+
+
+class StopBody(BaseModel):
+    session_id: str
+
+
+@app.get("/health")
+async def health() -> dict:
+    return {"ok": True}
+
+
+@app.post("/api/start", status_code=202)
+async def start(body: StartBody) -> dict:
+    if body.session_id in active_sessions:
+        raise HTTPException(status_code=409, detail="Session already active")
+    task = asyncio.create_task(
+        run_session(body.video_id, body.session_id),
+        name=f"session-{body.session_id}",
+    )
+    active_sessions[body.session_id] = task
+    logger.info("Started session %s for video %s", body.session_id, body.video_id)
+    return {"status": "started", "session_id": body.session_id}
+
+
+@app.post("/api/stop")
+async def stop(body: StopBody) -> dict:
+    task = active_sessions.pop(body.session_id, None)
+    if task:
+        task.cancel()
+    db.update_session_status(body.session_id, "stopped")
+    return {"status": "stopped"}
+
+
+async def run_session(video_id: str, session_id: str) -> None:
+    adapter = PipelineAdapter(session_id, video_id)
+
+    def on_batch(messages: list[Any] | None) -> None:
+        if messages is None:
+            db.update_session_status(session_id, "ended")
+            active_sessions.pop(session_id, None)
+            logger.info("Session %s ended (stream finished)", session_id)
+            return
+        for item in messages:
+            try:
+                prompts = adapter.process_message(item)
+            except Exception as exc:
+                logger.warning("Pipeline error on message: %s", exc)
+                continue
+            for p in prompts:
+                try:
+                    db.write_prompt(session_id, p.source.value, p.category.value, p.text)
+                except Exception as exc:
+                    logger.warning("DB write error: %s", exc)
+
+    try:
+        await chat_collector.collect(video_id, session_id, on_batch)
+    except asyncio.CancelledError:
+        logger.info("Session %s cancelled", session_id)
+        db.update_session_status(session_id, "stopped")
+    except Exception as exc:
+        logger.error("Session %s crashed: %s", session_id, exc)
+        db.update_session_status(session_id, "stopped")
+    finally:
+        active_sessions.pop(session_id, None)
