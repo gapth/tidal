@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 
 function parseVideoId(input: string): string | null {
@@ -32,10 +33,22 @@ export async function POST(request: Request) {
     );
   }
 
+  const serverClient = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await serverClient.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const supabase = createSupabaseAdminClient();
   const { data: session, error: dbError } = await supabase
     .from("sessions")
-    .insert({ video_id: videoId, youtube_url: youtubeUrl })
+    .insert({
+      video_id: videoId,
+      youtube_url: youtubeUrl,
+      owner_user_id: user.id,
+    })
     .select("id")
     .single();
 

@@ -4,8 +4,8 @@
 
 - [Fly.io CLI](https://fly.io/docs/hands-on/install-flyctl/):
   `brew install flyctl`
-- [Vercel CLI](https://vercel.com/docs/cli): `npm i -g vercel` (or deploy via
-  dashboard)
+- [Vercel CLI](https://vercel.com/docs/cli): `brew install vercel-cli` (or
+  deploy via dashboard)
 - `.env` and `.env.local` already present in the repo root (copied from `main`)
 
 ---
@@ -76,23 +76,6 @@ while IFS='=' read -r key value; do
 done < .env
 ```
 
-### Add additional vars manually
-
-Any vars not in `.env` (e.g. `WORKER_URL`, `ALLOWED_EMAILS`) — add them in the
-Vercel dashboard or via CLI:
-
-```bash
-echo "https://tidal-worker.fly.dev" | vercel env add WORKER_URL production
-echo "your@email.com,other@email.com" | vercel env add ALLOWED_EMAILS production
-```
-
-Also add these to your local `.env.local`:
-
-```
-WORKER_URL=http://localhost:8080
-ALLOWED_EMAILS=your@email.com
-```
-
 ### Deploy
 
 ```bash
@@ -105,8 +88,7 @@ Or push to the connected Git branch to auto-deploy.
 
 ## Step 4 — Local development
 
-`.env.local` has the Supabase and OpenAI keys. Just add any missing vars (see
-above), then:
+`.env.local` has all the required vars. Just run:
 
 ```bash
 npm run dev
