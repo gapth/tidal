@@ -1,177 +1,163 @@
-"""pytchat-based live chat collection.
+"""YouTube live chat collection via liveChatMessages.streamList gRPC endpoint.
 
-Runs pytchat in a thread pool (asyncio.to_thread) to avoid blocking the event loop.
-Batches messages: calls on_message_batch when 20 messages accumulate or 3 seconds
-elapse, whichever comes first. Sends None as a sentinel when the stream ends.
+Opens a persistent gRPC stream to YouTube and receives chat messages as they
+are published. Calls on_message_batch with batches of LiveChatMessage protobuf
+objects; sends None as a sentinel when the stream ends.
 """
 
 import asyncio
+import json
 import logging
+import os
 import threading
 import time
 import urllib.request
-from collections import deque
 from typing import Any, Callable
 
-import pytchat
+import grpc
+
+from worker import stream_list_pb2, stream_list_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
-_BATCH_SIZE = 20
-_BATCH_INTERVAL_S = 3.0
 _MAX_RECONNECTS = 3
 _RECONNECT_BACKOFF_S = [5, 15, 30]
-_DEAD_STREAM_TIMEOUT_S = 30.0
+_YT_GRPC_TARGET = "dns:///youtube.googleapis.com:443"
 
 
-def _probe_youtube(video_id: str) -> None:
-    """Fetch the YouTube watch page and log signals that distinguish bot detection from a bad video ID."""
-    url = f"https://m.youtube.com/watch?v={video_id}"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            status = resp.status
-            body = resp.read(16384).decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as e:
-        logger.info(
-            "YouTube probe: HTTP %s for %s — likely bot-blocked or rate-limited",
-            e.code,
-            video_id,
-        )
-        return
-    except Exception as e:
-        logger.info("YouTube probe: request failed for %s: %s", video_id, e)
-        return
+def _interruptible_sleep(seconds: float, stop: threading.Event) -> None:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline and not stop.is_set():
+        time.sleep(0.5)
 
-    body_start = (
-        body[body.lower().find("<body") : body.lower().find("<body") + 500]
-        if "<body" in body.lower()
-        else body[:500]
+
+def _get_live_chat_id(
+    video_id: str, api_key: str, stop: threading.Event
+) -> str | None:
+    """Return the activeLiveChatId for a live video, or None on failure."""
+    url = (
+        "https://www.googleapis.com/youtube/v3/videos"
+        f"?part=liveStreamingDetails&id={video_id}&key={api_key}"
     )
-
-    if "consent.youtube.com" in body or "consent" in body.lower()[:500]:
-        logger.info(
-            "YouTube probe: consent/cookie wall detected for %s (status=%s) — bot detection likely",
-            video_id,
-            status,
-        )
-    elif "og:title" in body or '"videoId"' in body:
-        logger.info(
-            "YouTube probe: video page looks normal for %s (status=%s) — pytchat parsing issue, not bot detection",
-            video_id,
-            status,
-        )
-    elif (
-        "why this page" in body.lower()
-        or "unusual traffic" in body.lower()
-        or "captcha" in body.lower()
-    ):
-        logger.info(
-            "YouTube probe: bot/captcha challenge detected for %s (status=%s)",
-            video_id,
-            status,
-        )
-    else:
-        logger.info(
-            "YouTube probe: unexpected page for %s (status=%s) — body start: %s",
-            video_id,
-            status,
-            body_start,
-        )
+    for attempt in range(_MAX_RECONNECTS + 1):
+        if stop.is_set():
+            return None
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            items = data.get("items", [])
+            if not items:
+                logger.error("No video found for %s", video_id)
+                return None
+            chat_id = (items[0].get("liveStreamingDetails") or {}).get(
+                "activeLiveChatId"
+            )
+            if not chat_id:
+                logger.error("Video %s is not currently live", video_id)
+                return None
+            logger.info("Resolved liveChatId for %s: %s", video_id, chat_id)
+            return chat_id
+        except Exception as e:
+            logger.warning(
+                "liveChatId lookup attempt %d/%d failed: %s",
+                attempt + 1,
+                _MAX_RECONNECTS + 1,
+                e,
+            )
+            if attempt < _MAX_RECONNECTS:
+                _interruptible_sleep(_RECONNECT_BACKOFF_S[attempt], stop)
+    return None
 
 
 def _collect_blocking(
     video_id: str,
+    api_key: str,
     on_batch: Callable[[list[Any] | None], None],
     stop: threading.Event,
 ) -> None:
-    """Blocking pytchat loop. Runs in a thread pool executor."""
-    attempt = 0
-    while attempt <= _MAX_RECONNECTS:
-        if stop.is_set():
-            return
+    live_chat_id = _get_live_chat_id(video_id, api_key, stop)
+    if live_chat_id is None:
+        on_batch(None)
+        return
 
-        try:
-            chat = pytchat.create(video_id=video_id, interruptable=False)
-        except Exception as exc:
-            logger.error("pytchat.create failed for %s: %s", video_id, exc)
-            _probe_youtube(video_id)
-            break
+    creds = grpc.ssl_channel_credentials()
+    next_page_token: str | None = None
+    transient_failures = 0
+    _first_message_logged = False
 
-        batch: list[Any] = []
-        batch_start = time.monotonic()
-        dead_since: float | None = None
-        _first_alive_logged = False
-        _first_message_logged = False
+    with grpc.secure_channel(_YT_GRPC_TARGET, creds) as channel:
+        stub = stream_list_pb2_grpc.V3DataLiveChatMessageServiceStub(channel)
+        metadata = (("x-goog-api-key", api_key),)
 
         while not stop.is_set():
-            if not _first_alive_logged:
-                alive = chat.is_alive()
-                logger.info(
-                    "pytchat.is_alive() = %s on first check for %s", alive, video_id
-                )
-                _first_alive_logged = True
-                if not alive:
-                    dead_since = time.monotonic()
-                    time.sleep(1)
-                    continue
+            request = stream_list_pb2.LiveChatMessageListRequest(
+                part=["snippet", "authorDetails"],
+                live_chat_id=live_chat_id,
+                page_token=next_page_token,
+            )
+            call = stub.StreamList(request, metadata=metadata)
 
-            if not chat.is_alive():
-                if dead_since is None:
-                    dead_since = time.monotonic()
-                    logger.info("pytchat stream went dead for %s", video_id)
-                elif time.monotonic() - dead_since >= _DEAD_STREAM_TIMEOUT_S:
-                    # Stream has been dead long enough — flush and exit
-                    if batch:
-                        on_batch(batch)
-                    on_batch(None)  # sentinel
-                    return
-                time.sleep(1)
-                continue
+            # Daemon thread cancels the gRPC call when stop is signalled
+            threading.Thread(
+                target=lambda c=call: (stop.wait(), c.cancel()), daemon=True
+            ).start()
 
-            dead_since = None
+            try:
+                for response in call:
+                    if response.next_page_token:
+                        next_page_token = response.next_page_token
 
-            data = chat.get()
-            for item in data.sync_items():
+                    items = [
+                        msg
+                        for msg in response.items
+                        if msg.snippet.has_display_content
+                    ]
+                    if items:
+                        if not _first_message_logged:
+                            logger.info(
+                                "First message received for %s", video_id
+                            )
+                            _first_message_logged = True
+                        on_batch(items)
+
+                    if response.offline_at:
+                        logger.info(
+                            "Stream offline_at=%s for %s",
+                            response.offline_at,
+                            video_id,
+                        )
+                        on_batch(None)
+                        return
+
+                    if stop.is_set():
+                        return
+
+                # Server closed stream cleanly — reconnect with next_page_token
                 if stop.is_set():
                     return
-                if not _first_message_logged:
-                    logger.info("pytchat: first message received for %s", video_id)
-                    _first_message_logged = True
-                batch.append(item)
-                if len(batch) >= _BATCH_SIZE:
-                    on_batch(batch)
-                    batch = []
-                    batch_start = time.monotonic()
+                logger.info("gRPC stream closed cleanly for %s, reconnecting", video_id)
 
-            # Flush on time interval even if batch not full
-            if batch and time.monotonic() - batch_start >= _BATCH_INTERVAL_S:
-                on_batch(batch)
-                batch = []
-                batch_start = time.monotonic()
-
-            time.sleep(0.5)
-
-        if stop.is_set():
-            return
-
-        # Reconnect logic
-        attempt += 1
-        if attempt <= _MAX_RECONNECTS:
-            backoff = _RECONNECT_BACKOFF_S[
-                min(attempt - 1, len(_RECONNECT_BACKOFF_S) - 1)
-            ]
-            logger.warning(
-                "pytchat disconnected for %s, reconnect %d/%d in %ds",
-                video_id,
-                attempt,
-                _MAX_RECONNECTS,
-                backoff,
-            )
-            time.sleep(backoff)
-
-    # Exhausted reconnects
-    on_batch(None)
+            except grpc.RpcError as e:
+                if stop.is_set() or e.code() == grpc.StatusCode.CANCELLED:
+                    return
+                transient_failures += 1
+                if transient_failures > _MAX_RECONNECTS:
+                    logger.error(
+                        "gRPC stream exhausted reconnects for %s: %s",
+                        video_id,
+                        e,
+                    )
+                    on_batch(None)
+                    return
+                backoff = _RECONNECT_BACKOFF_S[min(transient_failures - 1, 2)]
+                logger.warning(
+                    "gRPC error %s for %s, reconnecting in %ds",
+                    e.code(),
+                    video_id,
+                    backoff,
+                )
+                _interruptible_sleep(backoff, stop)
 
 
 async def collect(
@@ -180,20 +166,23 @@ async def collect(
     on_message_batch: Callable[[list[Any] | None], None],
     stop: threading.Event | None = None,
 ) -> None:
-    """Start collecting live chat for video_id. Calls on_message_batch with
-    batches of pytchat items, then None when the stream ends or reconnects
-    are exhausted.
+    """Start collecting live chat for video_id via the YouTube gRPC stream.
 
-    Pass an external stop event to allow the caller to signal the thread
-    directly without relying on asyncio task cancellation propagation.
+    Calls on_message_batch with batches of LiveChatMessage protobuf objects,
+    then None when the stream ends or reconnects are exhausted.
     """
+    api_key = os.environ.get("YOUTUBE_API_KEY")
+    if not api_key:
+        raise RuntimeError("YOUTUBE_API_KEY not set in environment")
     if stop is None:
         stop = threading.Event()
     logger.info(
         "Starting chat collection for session=%s video=%s", session_id, video_id
     )
     try:
-        await asyncio.to_thread(_collect_blocking, video_id, on_message_batch, stop)
+        await asyncio.to_thread(
+            _collect_blocking, video_id, api_key, on_message_batch, stop
+        )
     except asyncio.CancelledError:
         stop.set()
         raise
