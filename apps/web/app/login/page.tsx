@@ -27,7 +27,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     : "/";
 
   if (code) {
-    redirect(`/auth/callback?code=${encodeURIComponent(code)}&next=${encodeURIComponent(next)}`);
+    redirect(
+      `/auth/callback?code=${encodeURIComponent(code)}&next=${encodeURIComponent(next)}`,
+    );
   }
 
   if (user) {

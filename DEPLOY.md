@@ -60,6 +60,12 @@ curl https://tidal-worker.fly.dev/health
 
 ## Step 3 — Deploy the web app to Vercel
 
+In Vercel project settings, set **Root Directory** to:
+
+```text
+apps/web
+```
+
 ### Import existing vars from .env
 
 In the Vercel dashboard → project **Settings** → **Environment Variables** →
@@ -99,11 +105,13 @@ For the worker locally (in a separate terminal):
 ```bash
 # One-time setup
 python -m venv .venv && source .venv/bin/activate
-pip install -r pipeline/requirements.txt -r worker/requirements.txt
+pip install -r packages/pipeline/requirements.txt -r apps/worker/requirements.txt
 
-# Run (sources vars from .env.local)
-set -a && source .env.local && set +a
-uvicorn worker.main:app --reload --port 8080
+# Run from the repo root; this sources vars from .env.local
+npm run dev:worker
+
+# Optional reload mode for local editing
+npm run dev:worker:reload
 ```
 
 ---

@@ -6,37 +6,36 @@
 
 ## Aggregate Metrics
 
-| Metric | Value |
-|--------|-------|
-| Total prompts | 0 |
-| Pipeline C prompts | 0 |
-| Pipeline A prompts | 0 |
-| A candidates suppressed by dedup | 0 |
-| Prompts / min (overall) | 0.00 |
-| Total LLM calls | 0 |
-| Estimated cost | $0.0000 |
+| Metric                           | Value   |
+| -------------------------------- | ------- |
+| Total prompts                    | 0       |
+| Pipeline C prompts               | 0       |
+| Pipeline A prompts               | 0       |
+| A candidates suppressed by dedup | 0       |
+| Prompts / min (overall)          | 0.00    |
+| Total LLM calls                  | 0       |
+| Estimated cost                   | $0.0000 |
 
 **Prompts by category:**
 
-
 ## Latency Distribution
 
-| Pipeline | p50 | p95 | p99 |
-|----------|-----|-----|-----|
+| Pipeline            | p50 | p95 | p99 |
+| ------------------- | --- | --- | --- |
 | C (heuristic + LLM) | n/a | n/a | n/a |
-| A (periodic sweep) | n/a | n/a | n/a |
+| A (periodic sweep)  | n/a | n/a | n/a |
 
-*(Latency = wall-clock LLM call duration only. End-to-end adds ~2.5–3s ingestion latency.)*
+_(Latency = wall-clock LLM call duration only. End-to-end adds ~2.5–3s ingestion latency.)_
 
 ## C vs A Comparison
 
 ### What Pipeline A adds (A-only prompts that survived dedup)
 
-*(No A-only prompts in this run — A was fully covered by C or no sweeps fired.)*
+_(No A-only prompts in this run — A was fully covered by C or no sweeps fired.)_
 
 ### What Pipeline C adds (monetization events — A would miss these at the right latency)
 
-*(No monetization events in corpus — category works correctly but corpus lacks examples.)*
+_(No monetization events in corpus — category works correctly but corpus lacks examples.)_
 
 ## Tuning Findings
 
@@ -45,6 +44,7 @@
 **A window size:** 180.0s. Matching the sweep interval means each sweep sees exactly the messages since the last sweep — no overlap, no gaps. Widening the window adds context but risks re-surfacing questions C already handled.
 
 **Heuristic thresholds used:**
+
 - repeat_similarity_threshold: 0.82 (cosine sim, text-embedding-3-small)
 - repeat_min_authors: 2
 - energy_spike_z_threshold: 2.0 (over 30.0s buckets)
@@ -53,9 +53,9 @@
 
 ## Per-Stream Summary
 
-| Stream | Messages | Duration | Total | C | A | /min | Categories |
-|--------|----------|----------|-------|---|---|------|------------|
-| G4sJr4-08S8 | 1,665 | 41m | 0 | 0 | 0 | 0.0 | none |
+| Stream      | Messages | Duration | Total | C   | A   | /min | Categories |
+| ----------- | -------- | -------- | ----- | --- | --- | ---- | ---------- |
+| G4sJr4-08S8 | 1,665    | 41m      | 0     | 0   | 0   | 0.0  | none       |
 
 ## Known Gaps
 

@@ -5,10 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev      # Start dev server (Next.js on :3000)
-npm run build    # Production build
-npm run lint     # ESLint
-npm test         # Run tests (vitest)
+npm run dev      # Start web dev server (Next.js on :3000), using root .env.local
+npm run build    # Web production build, using root .env.local
+npm run lint     # Web ESLint
+npm test         # Web tests (vitest)
 ```
 
 **Supabase local dev:**
@@ -23,9 +23,10 @@ supabase migration new <name>   # Create new migration
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -r pipeline/requirements.txt -r worker/requirements.txt
-set -a && source .env.local && set +a
-uvicorn worker.main:app --reload --port 8080
+pip install -r packages/pipeline/requirements.txt -r apps/worker/requirements.txt
+npm run dev:worker
+# Optional reload mode:
+npm run dev:worker:reload
 ```
 
 ## Architecture
@@ -94,4 +95,4 @@ Migration files live in `supabase/migrations/`. Naming convention: `YYYYMMDDHHMM
 - Worker deploys to Fly.io as `tidal-worker`.
 - `WORKER_URL` should point to the worker (`https://tidal-worker.fly.dev` in production, `http://localhost:8080` locally).
 - Fly.io worker secrets come from `.env` and must include Supabase service-role access, `OPENAI_API_KEY`, and `YOUTUBE_API_KEY`.
-- Proto stubs (`worker/stream_list_pb2.py`, `worker/stream_list_pb2_grpc.py`) are generated from `worker/stream_list.proto` and checked in. To regenerate: `pip install grpcio-tools && PROTO_INCLUDE=$(python -c "import grpc_tools, os; print(os.path.join(os.path.dirname(grpc_tools.__file__), '_proto'))") && python -m grpc_tools.protoc -I"$PROTO_INCLUDE" -Iworker --python_out=worker --grpc_python_out=worker worker/stream_list.proto` (then fix the import in `stream_list_pb2_grpc.py`: `from worker import stream_list_pb2 as ...`).
+- Proto stubs (`apps/worker/worker/stream_list_pb2.py`, `apps/worker/worker/stream_list_pb2_grpc.py`) are generated from `apps/worker/worker/stream_list.proto` and checked in. To regenerate: `pip install grpcio-tools && PROTO_INCLUDE=$(python -c "import grpc_tools, os; print(os.path.join(os.path.dirname(grpc_tools.__file__), '_proto'))") && python -m grpc_tools.protoc -I"$PROTO_INCLUDE" -Iapps/worker/worker --python_out=apps/worker --grpc_python_out=apps/worker apps/worker/worker/stream_list.proto` (then fix the import in `stream_list_pb2_grpc.py`: `from worker import stream_list_pb2 as ...`).

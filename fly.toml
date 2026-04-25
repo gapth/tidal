@@ -2,7 +2,7 @@ app = "tidal-worker"
 primary_region = "iad"
 
 [build]
-  dockerfile = "worker/Dockerfile"
+  dockerfile = "apps/worker/Dockerfile"
 
 [http_service]
   internal_port = 8080

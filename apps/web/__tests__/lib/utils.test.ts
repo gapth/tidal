@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { formatTimestamp, parsePageNumber, normalizeInterval } from "@/lib/utils";
+import {
+  formatTimestamp,
+  parsePageNumber,
+  normalizeInterval,
+} from "@/lib/utils";
 
 describe("formatTimestamp", () => {
   it("returns placeholder for null", () => {

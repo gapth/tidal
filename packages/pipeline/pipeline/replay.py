@@ -1,11 +1,11 @@
 """Replay CLI — feed a corpus through the hybrid pipeline at original stream pace.
 
 Usage:
-    python pipeline/replay.py --video-id <ID> [--dataset-dir <path>]
-    python pipeline/replay.py --glob "dataset/raw/*.jsonl"
+    python packages/pipeline/pipeline/replay.py --video-id <ID> [--dataset-dir <path>]
+    python packages/pipeline/pipeline/replay.py --glob "dataset/raw/*.jsonl"
 
     # Point at the Spike 3 corpus from the sibling tidal repo:
-    python pipeline/replay.py --glob "../tidal/spikes/spike_03_dataset/dataset/raw/*.jsonl"
+    python packages/pipeline/pipeline/replay.py --glob "../tidal/spikes/spike_03_dataset/dataset/raw/*.jsonl"
 
 Flags:
     --video-id      Single video ID to replay (looks in --dataset-dir)
@@ -27,7 +27,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-# Allow running as `python pipeline/replay.py` from project root
+# Allow running as `python packages/pipeline/pipeline/replay.py` from project root
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pipeline.config import PipelineConfig

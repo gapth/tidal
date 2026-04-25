@@ -2,51 +2,34 @@
   "name": "tidal",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
   "scripts": {
-    "dev": "next dev",
-    "dev:prod": "dotenv -e .env -- next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint .",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "ingest_video": "tsx --env-file=.env scripts/ingest_video.ts",
-    "ingest_channel": "tsx --env-file=.env scripts/ingest_channel.ts",
+    "dev": "npm run dev:web",
+    "build": "npm run build:web",
+    "start": "npm run start:web",
+    "lint": "npm run lint:web",
+    "test": "npm run test:web",
+    "dev:web": "dotenv -e .env.local -- npm --workspace @tidal/web run dev",
+    "dev:web:prod": "dotenv -e .env -- npm --workspace @tidal/web run dev",
+    "build:web": "dotenv -e .env.local -- npm --workspace @tidal/web run build",
+    "start:web": "npm --workspace @tidal/web run start",
+    "lint:web": "npm --workspace @tidal/web run lint",
+    "test:web": "npm --workspace @tidal/web run test",
+    "test:web:watch": "npm --workspace @tidal/web run test:watch",
+    "dev:worker": "PYTHONPATH=apps/worker:packages/pipeline dotenv -e .env.local -- .venv/bin/uvicorn worker.main:app --port 8080",
+    "dev:worker:reload": "PYTHONPATH=apps/worker:packages/pipeline WATCHFILES_FORCE_POLLING=true dotenv -e .env.local -- .venv/bin/uvicorn worker.main:app --reload --reload-dir apps/worker --reload-dir packages/pipeline --port 8080",
     "format": "prettier --write .",
     "prepare": "husky"
-  },
-  "dependencies": {
-    "@supabase/ssr": "^0.10.2",
-    "@supabase/supabase-js": "^2.53.0",
-    "next": "^15.3.1",
-    "openai": "^6.34.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
-  },
-  "optionalDependencies": {
-    "@rolldown/binding-darwin-arm64": "^1.0.0-rc.16"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,json,css,md}": "prettier --write"
   },
   "devDependencies": {
-    "@types/node": "^22.14.1",
-    "@types/react": "^19.1.2",
-    "@types/react-dom": "^19.1.2",
-    "@vitest/browser": "^4.1.4",
-    "autoprefixer": "^10.4.21",
     "dotenv-cli": "^11.0.0",
-    "eslint": "^9.25.0",
-    "eslint-config-next": "^15.3.1",
-    "happy-dom": "^20.9.0",
     "husky": "^9.1.7",
-    "jsdom": "^29.0.2",
     "lint-staged": "^16.4.0",
-    "postcss": "^8.5.3",
-    "prettier": "^3.8.3",
-    "tailwindcss": "^3.4.17",
-    "tsx": "^4.19.2",
-    "typescript": "^5.8.3",
-    "vitest": "^4.1.4"
+    "prettier": "^3.8.3"
   }
 }
