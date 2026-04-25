@@ -5,8 +5,8 @@ on:
     branches: [main]
     paths:
       - fly.toml
-      - worker/**
-      - pipeline/**
+      - apps/worker/**
+      - packages/pipeline/**
 
 jobs:
   deploy:
