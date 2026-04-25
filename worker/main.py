@@ -2,12 +2,9 @@ import asyncio
 import logging
 import os
 import threading
-import urllib.error
-import urllib.request
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 import worker.chat_collector as chat_collector
@@ -33,21 +30,6 @@ class StopBody(BaseModel):
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True}
-
-
-@app.get("/api/probe", response_class=HTMLResponse)
-async def probe(v: str = Query(..., description="YouTube video ID")) -> HTMLResponse:
-    url = f"https://www.youtube.com/watch?v={v}"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-            return HTMLResponse(content=body, status_code=resp.status)
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        return HTMLResponse(content=body, status_code=e.code)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
 
 
 @app.post("/api/start", status_code=202)
