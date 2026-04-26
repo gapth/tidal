@@ -1,13 +1,17 @@
 """Pipeline C — per-message heuristic pre-filter + LLM interpret.
 
-Four heuristics in priority order:
-  1. monetization_event  — bypasses cooldown, always immediate
-  2. repeated_question   — embedding-based cluster ≥ N authors
-  3. energy_spike        — message-rate Z-score
-  4. message_acknowledgment — long / moderator / first-timer message
+Heuristics in priority order:
+  1. monetization_event
+  2. stream_quality_issue
+  3. repeated_question
+  4. confusion_cluster
+  5. factual_correction
+  6. sentiment_shift
+  7. energy_spike
+  8. message_acknowledgment
 
-When any non-monetization heuristic fires and cooldown is clear, a single LLM
-call produces a one-sentence action for the streamer.
+Urgent categories can bypass the normal cooldown. Any fired heuristics are
+collapsed into a single LLM call that returns one short streamer action.
 """
 
 import re
@@ -19,6 +23,7 @@ from ..config import PipelineConfig
 from ..embeddings import EmbeddingCache
 from ..llm import complete
 from ..chat_types import Category, ChatMessage, HeuristicFire, Prompt, PromptSource
+from .stubs import ConfusionCluster, FactualCorrection, SentimentShift, StreamQualityIssue
 
 _BOT_CMD = re.compile(r"^[!#]")
 _BOT_PROMO = re.compile(r"https?://", re.IGNORECASE)
@@ -29,6 +34,11 @@ _MONETIZATION_TYPES = {
     "membershipItem",
     "giftPurchaseAnnouncement",
     "giftRedemptionAnnouncement",
+}
+
+_URGENT_CATEGORIES = {
+    Category.MONETIZATION_EVENT,
+    Category.STREAM_QUALITY_ISSUE,
 }
 
 _SYSTEM = (
@@ -91,6 +101,10 @@ class PipelineC:
             z_threshold=config.energy_spike_z_threshold,
             min_buckets=config.energy_spike_min_buckets,
         )
+        self._confusion_cluster = ConfusionCluster(config, embed_cache)
+        self._sentiment_shift = SentimentShift(config)
+        self._factual_correction = FactualCorrection(config, embed_cache)
+        self._stream_quality_issue = StreamQualityIssue(config)
 
     def process(self, msg: ChatMessage, stream_start_ms: float) -> Optional[Prompt]:
         """Process one message. Returns a Prompt if the LLM was invoked, else None."""
@@ -110,12 +124,32 @@ class PipelineC:
 
         fires: list[HeuristicFire] = []
 
-        # 2. Repeated question
+        # 2. Stream quality issue
+        quality_issue = self._stream_quality_issue.check(list(self._window))
+        if quality_issue:
+            fires.append(quality_issue)
+
+        # 3. Repeated question
         rq = self._check_repeated_question(msg)
         if rq:
             fires.append(rq)
 
-        # 3. Energy spike
+        # 4. Confusion cluster
+        confusion = self._confusion_cluster.check(list(self._window))
+        if confusion:
+            fires.append(confusion)
+
+        # 5. Factual correction
+        correction = self._factual_correction.check(list(self._window))
+        if correction:
+            fires.append(correction)
+
+        # 6. Sentiment shift
+        sentiment = self._sentiment_shift.check(list(self._window))
+        if sentiment:
+            fires.append(sentiment)
+
+        # 7. Energy spike
         if self._energy_detector.observe(msg.timestamp_ms):
             fires.append(HeuristicFire(
                 Category.ENERGY_SPIKE,
@@ -123,13 +157,18 @@ class PipelineC:
                 msg.timestamp_ms,
             ))
 
-        # 4. Message acknowledgment
+        # 8. Message acknowledgment
         ack = self._check_acknowledgment(msg)
         if ack:
             fires.append(ack)
 
-        if fires and self._cooldown_ok(msg.timestamp_ms):
-            return self._call_llm(fires, stream_start_ms=stream_start_ms)
+        bypass_cooldown = any(f.category in _URGENT_CATEGORIES for f in fires)
+        if fires and (bypass_cooldown or self._cooldown_ok(msg.timestamp_ms)):
+            return self._call_llm(
+                fires,
+                stream_start_ms=stream_start_ms,
+                bypass_cooldown=bypass_cooldown,
+            )
 
         return None
 
