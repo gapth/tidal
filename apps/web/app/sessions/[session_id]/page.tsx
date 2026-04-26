@@ -3,7 +3,7 @@
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type PromptRow = {
   id: string;
@@ -14,6 +14,8 @@ type PromptRow = {
   dismissed: boolean;
   created_at: string;
 };
+
+type SessionStatus = "active" | "stopped" | "ended";
 
 const CATEGORY_STYLES: Record<
   string,
@@ -66,6 +68,18 @@ const CATEGORY_STYLES: Record<
   },
 };
 
+const CATEGORY_ORDER = [
+  "monetization_event",
+  "energy_spike",
+  "repeated_question",
+  "novel_question",
+  "confusion_cluster",
+  "factual_correction",
+  "sentiment_shift",
+  "message_acknowledgment",
+  "stream_quality_issue",
+];
+
 function categoryStyle(cat: string) {
   return (
     CATEGORY_STYLES[cat] ?? {
@@ -106,6 +120,93 @@ async function resumeSession(sessionId: string) {
   }
 }
 
+function CategoryColumn({
+  category,
+  prompts,
+  dismissed,
+  limit,
+  showDismissed,
+  onDismiss,
+  onLoadMore,
+}: {
+  category: string;
+  prompts: PromptRow[];
+  dismissed: Set<string>;
+  limit: number;
+  showDismissed: boolean;
+  onDismiss: (id: string) => void;
+  onLoadMore: () => void;
+}) {
+  const style = categoryStyle(category);
+  const visible = showDismissed
+    ? prompts
+    : prompts.filter((p) => !dismissed.has(p.id));
+
+  if (visible.length === 0) return null;
+
+  const shown = visible.slice(0, limit);
+  const remaining = visible.length - limit;
+  const hasMore = remaining > 0;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span
+          className={`text-xs font-semibold px-2 py-0.5 rounded-full ${style.bg} ${style.text}`}
+        >
+          {style.label}
+        </span>
+        <span className="text-xs text-gray-400">{visible.length}</span>
+      </div>
+
+      {shown.map((p) => {
+        const isDismissed = dismissed.has(p.id);
+        return (
+          <div
+            key={p.id}
+            className={`bg-white rounded-lg border border-gray-200 px-3 py-2.5 ${isDismissed ? "opacity-50" : ""}`}
+          >
+            <p className="text-sm text-gray-900 leading-snug mb-1.5">
+              {p.content}
+            </p>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-gray-400 font-mono truncate">
+                {p.source}
+              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs text-gray-400">
+                  {relativeTime(p.created_at)}
+                </span>
+                {isDismissed ? (
+                  <span className="text-xs text-gray-400 italic">
+                    Dismissed
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => onDismiss(p.id)}
+                    className="text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    Dismiss
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {hasMore && (
+        <button
+          onClick={onLoadMore}
+          className="text-xs text-gray-500 hover:text-gray-700 py-1 text-left"
+        >
+          Load {Math.min(remaining, 5)} more ({remaining} remaining)
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function SessionPage({
   params,
 }: {
@@ -115,9 +216,17 @@ export default function SessionPage({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<PromptRow[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const [stopped, setStopped] = useState(false);
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus>("active");
   const [resumeError, setResumeError] = useState<string | null>(null);
+  const [showDismissed, setShowDismissed] = useState(false);
+  const [columnLimit, setColumnLimit] = useState<Record<string, number>>({});
+  const [, setTick] = useState(0);
   const supabase = useRef(createSupabaseBrowserClient());
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 15_000);
+    return () => clearInterval(id);
+  }, []);
 
   async function handleLogout() {
     await supabase.current.auth.signOut();
@@ -144,9 +253,8 @@ export default function SessionPage({
       .eq("id", sessionId)
       .single()
       .then(({ data }) => {
-        if (data?.status === "stopped" || data?.status === "ended") {
-          setStopped(true);
-        }
+        if (data?.status === "ended") setSessionStatus("ended");
+        else if (data?.status === "stopped") setSessionStatus("stopped");
       });
 
     sb.from("prompts")
@@ -156,10 +264,10 @@ export default function SessionPage({
       .then(({ data }) => {
         if (data) {
           setPrompts(data as PromptRow[]);
-          const dismissed = new Set(
+          const dis = new Set(
             (data as PromptRow[]).filter((p) => p.dismissed).map((p) => p.id),
           );
-          setDismissed(dismissed);
+          setDismissed(dis);
         }
       });
 
@@ -186,7 +294,7 @@ export default function SessionPage({
 
   async function handleStop() {
     if (!sessionId) return;
-    setStopped(true);
+    setSessionStatus("stopped");
     await stopSession(sessionId);
   }
 
@@ -195,7 +303,7 @@ export default function SessionPage({
     setResumeError(null);
     try {
       await resumeSession(sessionId);
-      setStopped(false);
+      setSessionStatus("active");
     } catch (err) {
       setResumeError(err instanceof Error ? err.message : "Failed to resume");
     }
@@ -209,6 +317,33 @@ export default function SessionPage({
       .eq("id", id);
   }
 
+  function loadMore(category: string) {
+    setColumnLimit((prev) => ({
+      ...prev,
+      [category]: (prev[category] ?? 5) + 5,
+    }));
+  }
+
+  const promptsByCategory = useMemo(() => {
+    const map: Record<string, PromptRow[]> = {};
+    for (const p of prompts) {
+      if (!map[p.category]) map[p.category] = [];
+      map[p.category].push(p);
+    }
+    return map;
+  }, [prompts]);
+
+  const orderedCategories = useMemo(() => {
+    const present = new Set(Object.keys(promptsByCategory));
+    const ordered = CATEGORY_ORDER.filter((c) => present.has(c));
+    const unknown = [...present].filter((c) => !CATEGORY_ORDER.includes(c));
+    return [...ordered, ...unknown];
+  }, [promptsByCategory]);
+
+  const totalVisible = useMemo(() => {
+    return prompts.filter((p) => showDismissed || !dismissed.has(p.id)).length;
+  }, [prompts, dismissed, showDismissed]);
+
   if (!sessionId) return null;
 
   return (
@@ -219,16 +354,9 @@ export default function SessionPage({
           {sessionId.slice(0, 8)}
         </span>
         <span className="ml-auto text-xs text-gray-400">
-          {prompts.length} prompt{prompts.length !== 1 ? "s" : ""}
+          {totalVisible} prompt{totalVisible !== 1 ? "s" : ""}
         </span>
-        {stopped ? (
-          <button
-            onClick={handleResume}
-            className="text-sm text-green-600 hover:text-green-800 font-medium"
-          >
-            Resume
-          </button>
-        ) : (
+        {sessionStatus === "active" && (
           <button
             onClick={handleStop}
             className="text-sm text-red-500 hover:text-red-700 font-medium"
@@ -236,8 +364,21 @@ export default function SessionPage({
             Stop
           </button>
         )}
-        {resumeError && (
-          <span className="text-xs text-red-500">{resumeError}</span>
+        {sessionStatus === "stopped" && (
+          <>
+            <button
+              onClick={handleResume}
+              className="text-sm text-green-600 hover:text-green-800 font-medium"
+            >
+              Resume
+            </button>
+            {resumeError && (
+              <span className="text-xs text-red-500">{resumeError}</span>
+            )}
+          </>
+        )}
+        {sessionStatus === "ended" && (
+          <span className="text-sm text-gray-400">Ended</span>
         )}
         <button
           onClick={handleLogout}
@@ -247,14 +388,24 @@ export default function SessionPage({
         </button>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-6 space-y-3">
-        <div className="flex items-center gap-4 text-sm text-gray-500">
+      <main className="px-4 py-6">
+        <div className="flex items-center gap-4 mb-4 text-sm text-gray-500">
           <Link href="/" className="underline hover:text-gray-700">
             New session
           </Link>
           <Link href="/sessions" className="underline hover:text-gray-700">
             All sessions
           </Link>
+          {dismissed.size > 0 && (
+            <button
+              onClick={() => setShowDismissed((v) => !v)}
+              className="underline hover:text-gray-700"
+            >
+              {showDismissed
+                ? "Hide dismissed"
+                : `Show dismissed (${dismissed.size})`}
+            </button>
+          )}
         </div>
 
         {prompts.length === 0 && (
@@ -263,47 +414,20 @@ export default function SessionPage({
           </p>
         )}
 
-        {prompts.map((p) => {
-          const style = categoryStyle(p.category);
-          const isDismissed = dismissed.has(p.id);
-          return (
-            <div
-              key={p.id}
-              className={`bg-white rounded-lg border border-gray-200 px-4 py-3 transition-opacity ${isDismissed ? "opacity-40" : ""}`}
-            >
-              <div className="flex items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span
-                      className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full ${style.bg} ${style.text}`}
-                    >
-                      {style.label}
-                    </span>
-                    <span className="text-xs text-gray-400 font-mono">
-                      {p.source}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-900 leading-snug">
-                    {p.content}
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-1.5 shrink-0">
-                  <span className="text-xs text-gray-400">
-                    {relativeTime(p.created_at)}
-                  </span>
-                  {!isDismissed && (
-                    <button
-                      onClick={() => dismiss(p.id)}
-                      className="text-xs text-gray-400 hover:text-gray-600"
-                    >
-                      Dismiss
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          );
-        })}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 items-start">
+          {orderedCategories.map((category) => (
+            <CategoryColumn
+              key={category}
+              category={category}
+              prompts={promptsByCategory[category] ?? []}
+              dismissed={dismissed}
+              limit={columnLimit[category] ?? 5}
+              showDismissed={showDismissed}
+              onDismiss={dismiss}
+              onLoadMore={() => loadMore(category)}
+            />
+          ))}
+        </div>
       </main>
     </div>
   );
