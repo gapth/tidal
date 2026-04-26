@@ -9,5 +9,10 @@ export function createSupabaseBrowserClient() {
     throw new Error("Missing public Supabase environment variables.");
   }
 
-  return createBrowserClient(supabaseUrl, supabasePublishableKey);
+  return createBrowserClient(supabaseUrl, supabasePublishableKey, {
+    auth: {
+      // OAuth codes are exchanged explicitly in /auth/callback.
+      detectSessionInUrl: false,
+    },
+  });
 }
