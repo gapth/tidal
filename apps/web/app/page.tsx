@@ -1,24 +1,9 @@
 "use client";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { parseYouTubeVideoId } from "@/lib/youtube";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-
-function parseVideoId(input: string): string | null {
-  const s = input.trim();
-  // youtu.be/ID or youtu.be/live/ID
-  let m = s.match(/youtu\.be\/(?:live\/)?([A-Za-z0-9_-]{11})/);
-  if (m) return m[1];
-  // ?v=ID or &v=ID
-  m = s.match(/[?&]v=([A-Za-z0-9_-]{11})/);
-  if (m) return m[1];
-  // /live/ID
-  m = s.match(/\/live\/([A-Za-z0-9_-]{11})/);
-  if (m) return m[1];
-  // bare 11-char ID
-  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
-  return null;
-}
 
 export default function HomePage() {
   const router = useRouter();
@@ -36,7 +21,7 @@ export default function HomePage() {
     e.preventDefault();
     setError(null);
 
-    const videoId = parseVideoId(url);
+    const videoId = parseYouTubeVideoId(url);
     if (!videoId) {
       setError(
         "Couldn't parse a video ID from that URL. Try pasting a YouTube URL or bare video ID.",

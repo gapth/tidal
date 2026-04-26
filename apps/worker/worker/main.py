@@ -58,7 +58,7 @@ async def stop(body: StopBody) -> dict:
 
 
 async def run_session(video_id: str, session_id: str, stop_event: threading.Event) -> None:
-    adapter = PipelineAdapter(session_id, video_id)
+    adapter = PipelineAdapter(video_id)
 
     def on_batch(messages: list[Any] | None) -> None:
         if messages is None:

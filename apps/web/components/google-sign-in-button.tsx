@@ -1,9 +1,7 @@
 "use client";
 
+import { getSafeNextPath, writePostLoginNextCookie } from "@/lib/auth-flow";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-
-const POST_LOGIN_COOKIE_NAME = "post_login_next";
-const POST_LOGIN_COOKIE_MAX_AGE = 300;
 
 type GoogleSignInButtonProps = {
   next?: string;
@@ -12,7 +10,7 @@ type GoogleSignInButtonProps = {
 export function GoogleSignInButton({ next = "/" }: GoogleSignInButtonProps) {
   const handleSignIn = async () => {
     const supabase = createSupabaseBrowserClient();
-    document.cookie = `${POST_LOGIN_COOKIE_NAME}=${encodeURIComponent(next)}; Path=/; Max-Age=${POST_LOGIN_COOKIE_MAX_AGE}; SameSite=Lax`;
+    writePostLoginNextCookie(getSafeNextPath(next));
     const redirectTo = new URL("/auth/callback", window.location.origin);
 
     await supabase.auth.signInWithOAuth({

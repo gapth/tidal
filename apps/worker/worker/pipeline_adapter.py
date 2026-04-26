@@ -75,8 +75,7 @@ def _convert_message(item: Any, video_id: str) -> ChatMessage:
 
 
 class PipelineAdapter:
-    def __init__(self, session_id: str, video_id: str):
-        self.session_id = session_id
+    def __init__(self, video_id: str):
         self.video_id = video_id
 
         config = PipelineConfig()

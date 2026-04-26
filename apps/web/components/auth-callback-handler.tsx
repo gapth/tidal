@@ -1,23 +1,13 @@
 "use client";
 
+import {
+  clearPostLoginNextCookie,
+  getSafeNextPath,
+  readPostLoginNextCookie,
+} from "@/lib/auth-flow";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-
-const POST_LOGIN_COOKIE_NAME = "post_login_next";
-
-function getCookieValue(name: string): string | null {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function clearCookie(name: string): void {
-  document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
-}
-
-function getSafeNext(next: string | null | undefined): string {
-  return next?.startsWith("/") ? next : "/";
-}
 
 type AuthCallbackHandlerProps = {
   code: string | null;
@@ -32,8 +22,8 @@ export function AuthCallbackHandler({ code, next }: AuthCallbackHandlerProps) {
     let cancelled = false;
 
     const exchangeCode = async () => {
-      const nextFromCookie = getCookieValue(POST_LOGIN_COOKIE_NAME);
-      const safeNext = getSafeNext(next ?? nextFromCookie);
+      const nextFromCookie = readPostLoginNextCookie();
+      const safeNext = getSafeNextPath(next ?? nextFromCookie);
 
       if (!code) {
         router.replace("/login");
@@ -43,7 +33,7 @@ export function AuthCallbackHandler({ code, next }: AuthCallbackHandlerProps) {
       const supabase = createSupabaseBrowserClient();
       const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-      clearCookie(POST_LOGIN_COOKIE_NAME);
+      clearPostLoginNextCookie();
 
       if (cancelled) {
         return;

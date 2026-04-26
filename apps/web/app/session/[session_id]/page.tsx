@@ -122,9 +122,6 @@ export default function SessionPage({
     await supabase.current.auth.signOut();
     router.push("/login");
   }
-  const channelRef = useRef<ReturnType<typeof supabase.current.channel> | null>(
-    null,
-  );
 
   // Unwrap params (Next.js 15 async params)
   useEffect(() => {
@@ -185,7 +182,6 @@ export default function SessionPage({
       )
       .subscribe();
 
-    channelRef.current = channel;
     return () => {
       sb.removeChannel(channel);
     };

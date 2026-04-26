@@ -1,18 +1,7 @@
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { parseYouTubeVideoId } from "@/lib/youtube";
 import { NextResponse } from "next/server";
-
-function parseVideoId(input: string): string | null {
-  const s = input.trim();
-  let m = s.match(/youtu\.be\/(?:live\/)?([A-Za-z0-9_-]{11})/);
-  if (m) return m[1];
-  m = s.match(/[?&]v=([A-Za-z0-9_-]{11})/);
-  if (m) return m[1];
-  m = s.match(/\/live\/([A-Za-z0-9_-]{11})/);
-  if (m) return m[1];
-  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
-  return null;
-}
 
 export async function POST(request: Request) {
   const body = (await request.json()) as { youtubeUrl?: string };
@@ -25,7 +14,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const videoId = parseVideoId(youtubeUrl);
+  const videoId = parseYouTubeVideoId(youtubeUrl);
   if (!videoId) {
     return NextResponse.json(
       { error: "Could not parse a video ID from the URL" },
