@@ -1,8 +1,8 @@
 "use client";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { LogoutButton } from "@/components/logout-button";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type PromptRow = {
@@ -212,7 +212,6 @@ export default function SessionPage({
 }: {
   params: Promise<{ session_id: string }>;
 }) {
-  const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<PromptRow[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
@@ -227,11 +226,6 @@ export default function SessionPage({
     const id = setInterval(() => setTick((t) => t + 1), 15_000);
     return () => clearInterval(id);
   }, []);
-
-  async function handleLogout() {
-    await supabase.current.auth.signOut();
-    router.push("/login");
-  }
 
   useEffect(() => {
     params.then((p) => setSessionId(p.session_id));
@@ -380,12 +374,7 @@ export default function SessionPage({
         {sessionStatus === "ended" && (
           <span className="text-sm text-gray-400">Ended</span>
         )}
-        <button
-          onClick={handleLogout}
-          className="text-sm text-gray-400 hover:text-gray-600"
-        >
-          Log out
-        </button>
+        <LogoutButton />
       </header>
 
       <main className="px-4 py-6">
