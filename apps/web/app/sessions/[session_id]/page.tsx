@@ -1,6 +1,7 @@
 "use client";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -123,12 +124,10 @@ export default function SessionPage({
     router.push("/login");
   }
 
-  // Unwrap params (Next.js 15 async params)
   useEffect(() => {
     params.then((p) => setSessionId(p.session_id));
   }, [params]);
 
-  // Stop the worker when navigating away
   useEffect(() => {
     if (!sessionId) return;
     return () => {
@@ -140,7 +139,6 @@ export default function SessionPage({
     if (!sessionId) return;
     const sb = supabase.current;
 
-    // Load existing prompts and session status
     sb.from("sessions")
       .select("status")
       .eq("id", sessionId)
@@ -165,7 +163,6 @@ export default function SessionPage({
         }
       });
 
-    // Subscribe to new prompts via Realtime
     const channel = sb
       .channel(`session-${sessionId}`)
       .on(
@@ -251,6 +248,15 @@ export default function SessionPage({
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-3">
+        <div className="flex items-center gap-4 text-sm text-gray-500">
+          <Link href="/" className="underline hover:text-gray-700">
+            New session
+          </Link>
+          <Link href="/sessions" className="underline hover:text-gray-700">
+            All sessions
+          </Link>
+        </div>
+
         {prompts.length === 0 && (
           <p className="text-center text-gray-400 text-sm py-16">
             Waiting for prompts… chat analysis will begin shortly.

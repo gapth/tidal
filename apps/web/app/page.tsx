@@ -2,6 +2,7 @@
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { parseYouTubeVideoId } from "@/lib/youtube";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
@@ -43,7 +44,7 @@ export default function HomePage() {
         );
       }
       const { session_id } = (await res.json()) as { session_id: string };
-      router.push(`/session/${session_id}`);
+      router.push(`/sessions/${session_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setLoading(false);
@@ -64,6 +65,14 @@ export default function HomePage() {
           Real-time sensemaking for live streams. Paste a YouTube live URL to
           start.
         </p>
+        <div className="mb-6">
+          <Link
+            href="/sessions"
+            className="text-sm text-gray-500 underline hover:text-gray-700"
+          >
+            View all sessions
+          </Link>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <input
