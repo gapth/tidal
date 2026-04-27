@@ -49,8 +49,6 @@ The active POC data model is only:
 - **`sessions`** — one livestream watching run; stores `video_id`, original `youtube_url`, `status`, and `created_at`
 - **`prompts`** — prompt cards emitted by the worker; stores `session_id`, `source`, `category`, `content`, `dismissed`, and `created_at`
 
-Realtime must be enabled for `prompts` in the Supabase dashboard.
-
 ### Key Flows
 
 **Start/watch flow:**

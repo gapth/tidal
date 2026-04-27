@@ -174,9 +174,6 @@ Apply schema migrations:
 supabase db push
 ```
 
-Enable Realtime for the `prompts` table in the Supabase dashboard. This is
-required for live prompt cards to appear in the browser.
-
 ### Fly.io Worker
 
 The worker deploys as `tidal-worker` from the repository root:

@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 _MAX_RECONNECTS = 3
 _RECONNECT_BACKOFF_S = [5, 15, 30]
 _YT_GRPC_TARGET = "dns:///youtube.googleapis.com:443"
+_KEEPALIVE_OPTIONS = [
+    ("grpc.keepalive_time_ms", 60_000),
+    ("grpc.keepalive_timeout_ms", 10_000),
+]
 
 
 def _interruptible_sleep(seconds: float, stop: threading.Event) -> None:
@@ -89,7 +93,7 @@ def _collect_blocking(
     transient_failures = 0
     _first_message_logged = False
 
-    with grpc.secure_channel(_YT_GRPC_TARGET, creds) as channel:
+    with grpc.secure_channel(_YT_GRPC_TARGET, creds, options=_KEEPALIVE_OPTIONS) as channel:
         stub = stream_list_pb2_grpc.V3DataLiveChatMessageServiceStub(channel)
         metadata = (("x-goog-api-key", api_key),)
 
@@ -98,8 +102,10 @@ def _collect_blocking(
                 part=["snippet", "authorDetails"],
                 live_chat_id=live_chat_id,
                 page_token=next_page_token,
+                max_results=2000,
             )
             call = stub.StreamList(request, metadata=metadata)
+            db.increment_session_usage(session_id, UsageDelta(yt_quota_units=1))
 
             # Daemon thread cancels the gRPC call when stop is signalled
             threading.Thread(

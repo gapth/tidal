@@ -6,6 +6,8 @@
   `brew install flyctl`
 - [Vercel CLI](https://vercel.com/docs/cli): `brew install vercel-cli` (or
   deploy via dashboard)
+- [Supabase CLI](https://supabase.com/docs/guides/cli/getting-started):
+  `brew install supabase/tap/supabase`
 - `.env` and `.env.local` already present in the repo root (copied from `main`)
 
 ---
@@ -24,15 +26,6 @@ supabase db reset
 ```bash
 supabase db push
 ```
-
-### Enable Realtime on `prompts`
-
-In the Supabase dashboard:
-
-1. Go to **Table Editor** → select `prompts`
-2. Click the **Realtime** toggle → enable
-
-This cannot be done via SQL migration; it must be done in the dashboard.
 
 ---
 
@@ -136,4 +129,3 @@ npm run dev:worker:reload
 | No prompts after 2+ minutes    | Worker logs: `flyctl logs --app tidal-worker`. pytchat may fail on non-live or private videos.  |
 | 500 from `/api/start`          | Verify `WORKER_URL` is set and the worker `/health` returns 200.                                |
 | `/denied` for allowlisted user | Check `ALLOWED_EMAILS` matches the exact Google account email (comparison is case-insensitive). |
-| Realtime not working           | Confirm Realtime is enabled on `prompts` in the Supabase dashboard.                             |
