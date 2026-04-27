@@ -279,6 +279,21 @@ export default function SessionPage({
           setPrompts((prev) => [payload.new as PromptRow, ...prev]);
         },
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "sessions",
+          filter: `id=eq.${sessionId}`,
+        },
+        (payload) => {
+          const status = (payload.new as { status: string }).status;
+          if (status === "ended") setSessionStatus("ended");
+          else if (status === "stopped") setSessionStatus("stopped");
+          else if (status === "active") setSessionStatus("active");
+        },
+      )
       .subscribe();
 
     return () => {
