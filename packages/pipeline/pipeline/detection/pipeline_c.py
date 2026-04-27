@@ -42,9 +42,14 @@ _URGENT_CATEGORIES = {
 }
 
 _SYSTEM = (
-    "You are a real-time assistant helping a YouTube live streamer notice what matters in chat. "
-    "You are given a few specific messages that triggered an automated alert. "
-    "In ONE short sentence, tell the streamer what to do or say. Be specific and concrete. No preamble."
+    "You are a real-time assistant helping a YouTube live streamer. "
+    "Given chat messages that triggered an alert, output a single streamer action in 10 words or fewer. "
+    "Use short, punchy phrases — not full sentences. No preamble.\n"
+    "Examples:\n"
+    "- Chrisean Shields - other fighters?\n"
+    "- Testing before match? Fair and safe?\n"
+    "- SKO GANG\n"
+    "- Say: thanks for the hype!"
 )
 
 
@@ -262,7 +267,7 @@ class PipelineC:
             system=_SYSTEM,
             user=user,
             model=self.config.model,
-            max_tokens=120,
+            max_tokens=60,
         )
 
         delta = UsageDelta()

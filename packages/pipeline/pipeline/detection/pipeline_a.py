@@ -14,8 +14,8 @@ from ..chat_types import Category, ChatMessage, Prompt, PromptSource, UsageDelta
 
 _SYSTEM = (
     "You are a real-time assistant for a YouTube live streamer. "
-    "Your task is to identify a single important question in recent chat "
-    "that the streamer should address."
+    "Identify the single most important question in recent chat. "
+    "Your action suggestion must be 10 words or fewer — short and punchy, no full sentences."
 )
 
 
@@ -47,7 +47,7 @@ class PipelineA:
             "- Is NOT tied to a monetization event\n"
             "- Would genuinely be worth the streamer answering\n\n"
             "If you find one, respond exactly:\n"
-            "QUESTION: <the question text> | ACTION: <one-sentence suggested action>\n\n"
+            "QUESTION: <the question text> | ACTION: <10 words or fewer>\n\n"
             "If there is none worth surfacing, respond exactly: NONE"
         )
 
@@ -55,7 +55,7 @@ class PipelineA:
             system=_SYSTEM,
             user=user,
             model=self.config.model,
-            max_tokens=120,
+            max_tokens=60,
         )
 
         delta = UsageDelta()
