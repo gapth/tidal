@@ -24,6 +24,18 @@ def write_prompt(session_id: str, source: str, category: str, content: str) -> N
     ).execute()
 
 
+def increment_session_usage(session_id: str, delta: "UsageDelta") -> None:
+    get_client().rpc("increment_session_usage", {
+        "p_session_id": session_id,
+        "p_llm_calls": delta.llm_calls,
+        "p_llm_input_tokens": delta.llm_input_tokens,
+        "p_llm_output_tokens": delta.llm_output_tokens,
+        "p_embedding_calls": delta.embedding_calls,
+        "p_embedding_tokens": delta.embedding_tokens,
+        "p_yt_quota_units": delta.yt_quota_units,
+    }).execute()
+
+
 def update_session_status(session_id: str, status: str) -> None:
     get_client().table("sessions").update({"status": status}).eq(
         "id", session_id

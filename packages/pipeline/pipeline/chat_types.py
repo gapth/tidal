@@ -44,6 +44,21 @@ class HeuristicFire:
 
 
 @dataclass
+class UsageDelta:
+    llm_calls: int = 0
+    llm_input_tokens: int = 0
+    llm_output_tokens: int = 0
+    embedding_calls: int = 0
+    embedding_tokens: int = 0
+    yt_quota_units: int = 0
+
+    def add_llm(self, input_tokens: int, output_tokens: int) -> None:
+        self.llm_calls += 1
+        self.llm_input_tokens += input_tokens
+        self.llm_output_tokens += output_tokens
+
+
+@dataclass
 class Prompt:
     source: PromptSource
     category: Category

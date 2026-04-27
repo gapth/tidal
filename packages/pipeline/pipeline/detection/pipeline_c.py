@@ -22,7 +22,7 @@ from typing import Optional
 from ..config import PipelineConfig
 from ..embeddings import EmbeddingCache
 from ..llm import complete
-from ..chat_types import Category, ChatMessage, HeuristicFire, Prompt, PromptSource
+from ..chat_types import Category, ChatMessage, HeuristicFire, Prompt, PromptSource, UsageDelta
 from .stubs import ConfusionCluster, FactualCorrection, SentimentShift, StreamQualityIssue
 
 _BOT_CMD = re.compile(r"^[!#]")
@@ -106,8 +106,8 @@ class PipelineC:
         self._factual_correction = FactualCorrection(config, embed_cache)
         self._stream_quality_issue = StreamQualityIssue(config)
 
-    def process(self, msg: ChatMessage, stream_start_ms: float) -> Optional[Prompt]:
-        """Process one message. Returns a Prompt if the LLM was invoked, else None."""
+    def process(self, msg: ChatMessage, stream_start_ms: float) -> tuple[Optional[Prompt], UsageDelta]:
+        """Process one message. Returns (Prompt, UsageDelta); Prompt is None if LLM was not invoked."""
         self._update_window(msg)
         self._seen_authors.add(msg.author_id or "")
 
@@ -120,7 +120,7 @@ class PipelineC:
             )
 
         if self._is_noise(msg):
-            return None
+            return None, UsageDelta()
 
         fires: list[HeuristicFire] = []
 
@@ -170,7 +170,7 @@ class PipelineC:
                 bypass_cooldown=bypass_cooldown,
             )
 
-        return None
+        return None, UsageDelta()
 
     # ── private helpers ────────────────────────────────────────────────────────
 
@@ -246,7 +246,7 @@ class PipelineC:
         fires: list[HeuristicFire],
         stream_start_ms: float,
         bypass_cooldown: bool = False,
-    ) -> Optional[Prompt]:
+    ) -> tuple[Optional[Prompt], UsageDelta]:
         categories = [f.category.value for f in fires]
         all_msgs: dict[str, ChatMessage] = {}
         for f in fires:
@@ -258,15 +258,18 @@ class PipelineC:
         trigger_str = ", ".join(categories)
 
         user = f"Alert: {trigger_str}\n\nMessages:\n{msg_str}\n\nWhat should the streamer do?"
-        text, latency_ms = complete(
+        text, latency_ms, in_tok, out_tok = complete(
             system=_SYSTEM,
             user=user,
             model=self.config.model,
             max_tokens=120,
         )
 
+        delta = UsageDelta()
+        delta.add_llm(in_tok, out_tok)
+
         if not text:
-            return None
+            return None, delta
 
         if not bypass_cooldown:
             # Record time of LLM call against the message timestamp of the first fire
@@ -286,4 +289,4 @@ class PipelineC:
             trigger_author_ids=[m.author_id or "" for m in top_msgs],
             trigger_texts=[m.text for m in top_msgs],
             llm_latency_ms=latency_ms,
-        )
+        ), delta

@@ -10,7 +10,7 @@ from collections import deque
 from datetime import datetime
 from typing import Any
 
-from pipeline.chat_types import ChatMessage, Prompt
+from pipeline.chat_types import ChatMessage, Prompt, UsageDelta
 
 logger = logging.getLogger(__name__)
 from pipeline.config import PipelineConfig
@@ -82,6 +82,7 @@ class PipelineAdapter:
         embed_cache = EmbeddingCache(model=config.embed_model)
 
         self._config = config
+        self._embed_cache = embed_cache
         self._pipeline_c = PipelineC(config, embed_cache)
         self._pipeline_a = PipelineA(config)
         self._dedup = DedupLayer(config, embed_cache)
@@ -92,7 +93,7 @@ class PipelineAdapter:
         self._stream_start_ms: float | None = None
         self._last_a_sweep_ms: float | None = None
 
-    def process_message(self, item: Any) -> list[Prompt]:
+    def process_message(self, item: Any) -> tuple[list[Prompt], UsageDelta]:
         msg = _convert_message(item, self.video_id)
 
         if self._stream_start_ms is None:
@@ -114,9 +115,13 @@ class PipelineAdapter:
         )
 
         results: list[Prompt] = []
+        delta = UsageDelta()
 
         # Pipeline C — per-message
-        c_prompt = self._pipeline_c.process(msg, stream_start_ms)
+        c_prompt, c_delta = self._pipeline_c.process(msg, stream_start_ms)
+        delta.llm_calls += c_delta.llm_calls
+        delta.llm_input_tokens += c_delta.llm_input_tokens
+        delta.llm_output_tokens += c_delta.llm_output_tokens
         if c_prompt:
             logger.info(
                 "C fired [%s] latency=%.0fms → %.80r",
@@ -133,9 +138,12 @@ class PipelineAdapter:
                 elapsed_since_sweep / 1000, len(self._a_window),
             )
             self._last_a_sweep_ms = msg.timestamp_ms
-            a_prompt = self._pipeline_a.check(
+            a_prompt, a_delta = self._pipeline_a.check(
                 list(self._a_window), stream_start_ms, msg.timestamp_ms
             )
+            delta.llm_calls += a_delta.llm_calls
+            delta.llm_input_tokens += a_delta.llm_input_tokens
+            delta.llm_output_tokens += a_delta.llm_output_tokens
             if a_prompt:
                 current_stream_ms = msg.timestamp_ms - stream_start_ms
                 if not self._dedup.is_duplicate(
@@ -151,4 +159,9 @@ class PipelineAdapter:
             else:
                 logger.info("A sweep: no prompt")
 
-        return results
+        # Drain embedding tokens accumulated during heuristic evaluation
+        embed_tokens, embed_calls = self._embed_cache.drain_usage()
+        delta.embedding_tokens = embed_tokens
+        delta.embedding_calls = embed_calls
+
+        return results, delta

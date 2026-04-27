@@ -68,7 +68,7 @@ async def run_session(video_id: str, session_id: str, stop_event: threading.Even
             return
         for item in messages:
             try:
-                prompts = adapter.process_message(item)
+                prompts, delta = adapter.process_message(item)
             except Exception as exc:
                 logger.warning("Pipeline error on message: %s", exc)
                 continue
@@ -77,6 +77,11 @@ async def run_session(video_id: str, session_id: str, stop_event: threading.Even
                     db.write_prompt(session_id, p.source.value, p.category.value, p.text)
                 except Exception as exc:
                     logger.warning("DB write error: %s", exc)
+            if delta.llm_calls or delta.embedding_calls:
+                try:
+                    db.increment_session_usage(session_id, delta)
+                except Exception as exc:
+                    logger.warning("Usage increment error: %s", exc)
 
     try:
         await chat_collector.collect(video_id, session_id, on_batch, stop=stop_event)

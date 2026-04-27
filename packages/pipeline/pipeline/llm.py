@@ -16,10 +16,10 @@ def complete(
     user: str,
     model: str = "gpt-4o-mini",
     max_tokens: int = 150,
-) -> tuple[str, float]:
+) -> tuple[str, float, int, int]:
     """Call the OpenAI chat completions endpoint.
 
-    Returns (response_text, latency_ms).
+    Returns (response_text, latency_ms, input_tokens, output_tokens).
     """
     client = get_client()
     t0 = time.perf_counter()
@@ -34,4 +34,4 @@ def complete(
     )
     latency_ms = (time.perf_counter() - t0) * 1000
     text = (resp.choices[0].message.content or "").strip()
-    return text, latency_ms
+    return text, latency_ms, resp.usage.prompt_tokens, resp.usage.completion_tokens
