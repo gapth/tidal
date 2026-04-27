@@ -21,6 +21,24 @@ class PipelineConfig:
     ack_min_len: int = 150                       # long message threshold
     ack_first_timer_min_len: int = 60            # first-timer message threshold
 
+    # Confusion cluster detection (Pipeline C, heuristic)
+    confusion_min_authors: int = 2
+    confusion_similarity_threshold: float = 0.72
+
+    # Sentiment shift detection (Pipeline C, heuristic)
+    sentiment_min_authors: int = 3
+    sentiment_recent_min_messages: int = 3
+    sentiment_recent_ratio_threshold: float = 0.6
+    sentiment_baseline_ratio_max: float = 0.25
+
+    # Factual correction detection (Pipeline C, heuristic)
+    factual_correction_min_authors: int = 2
+    factual_correction_similarity_threshold: float = 0.78
+
+    # Stream quality issue detection (Pipeline C, heuristic)
+    stream_quality_min_authors: int = 2
+    stream_quality_cooldown_s: float = 30.0
+
     # Pipeline C general
     c_window_s: float = 90.0         # rolling window for heuristics state
     llm_cooldown_s: float = 12.0     # min gap between C LLM calls (except monetization)
