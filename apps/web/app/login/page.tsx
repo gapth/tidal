@@ -46,7 +46,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               Sign In To Tidal
             </h1>
             <p className="max-w-2xl text-sm text-slate-400">
-              Access to chat tracking is restricted to signed-in users. For now,
+              Access is restricted to signed-in, allow-listed users. For now,
               sign in with Google only. No additional Google API access is
               requested in this login flow.
             </p>

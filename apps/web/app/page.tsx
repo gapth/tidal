@@ -1,6 +1,7 @@
 "use client";
 
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { LogoutButton } from "@/components/logout-button";
 import { parseYouTubeVideoId } from "@/lib/youtube";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -12,11 +13,6 @@ export default function HomePage() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  async function handleLogout() {
-    await supabase.current.auth.signOut();
-    router.push("/login");
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,12 +49,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <button
-        onClick={handleLogout}
-        className="absolute top-4 right-6 text-sm text-gray-400 hover:text-gray-600"
-      >
-        Log out
-      </button>
+      <LogoutButton className="absolute top-4 right-6 text-sm text-gray-400 hover:text-gray-600" />
       <div className="max-w-md w-full px-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Tidal</h1>
         <p className="text-gray-500 mb-8 text-sm">
