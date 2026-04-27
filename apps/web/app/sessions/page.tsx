@@ -3,6 +3,7 @@ import { LogoutButton } from "@/components/logout-button";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SessionsRefresh } from "./sessions-refresh";
+import { LocalDate } from "./local-date";
 
 type SessionRow = {
   id: string;
@@ -16,15 +17,6 @@ type SessionWithPromptCount = SessionRow & {
 };
 
 export const dynamic = "force-dynamic";
-
-function formatDate(iso: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(iso));
-}
 
 export default async function SessionsPage() {
   const supabase = await createSupabaseServerClient();
@@ -118,9 +110,7 @@ export default async function SessionsPage() {
                         className="absolute inset-0"
                         aria-label={`Open session ${session.id}`}
                       />
-                      <span className="text-xs text-gray-500">
-                        {formatDate(session.created_at)}
-                      </span>
+                      <LocalDate iso={session.created_at} />
                     </td>
                     <td className="relative px-5 py-4">
                       <Link
