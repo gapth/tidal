@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { LogoutButton } from "@/components/logout-button";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { SessionsRefresh } from "./sessions-refresh";
 
 type SessionRow = {
   id: string;
@@ -60,6 +61,7 @@ export default async function SessionsPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 px-6 py-10">
+      <SessionsRefresh />
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="flex items-center justify-between gap-4">
           <div>
