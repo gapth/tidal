@@ -213,6 +213,7 @@ export default function SessionPage({
   params: Promise<{ session_id: string }>;
 }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [videoId, setVideoId] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<PromptRow[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [sessionStatus, setSessionStatus] = useState<SessionStatus>("active");
@@ -243,10 +244,11 @@ export default function SessionPage({
     const sb = supabase.current;
 
     sb.from("sessions")
-      .select("status")
+      .select("status, video_id")
       .eq("id", sessionId)
       .single()
       .then(({ data }) => {
+        if (data?.video_id) setVideoId(data.video_id as string);
         if (data?.status === "ended") setSessionStatus("ended");
         else if (data?.status === "stopped") setSessionStatus("stopped");
       });
@@ -362,6 +364,25 @@ export default function SessionPage({
         <span className="text-gray-400 text-sm font-mono">
           {sessionId.slice(0, 8)}
         </span>
+        {videoId && (
+          <a
+            href={`https://www.youtube.com/watch?v=${videoId}`}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Watch on YouTube"
+            className="text-red-500 hover:text-red-600"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              className="h-4 w-4"
+              aria-hidden="true"
+            >
+              <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+            </svg>
+          </a>
+        )}
         <span className="ml-auto text-xs text-gray-400">
           {totalVisible} prompt{totalVisible !== 1 ? "s" : ""}
         </span>
