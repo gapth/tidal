@@ -222,6 +222,7 @@ export default function SessionPage({
   const [columnLimit, setColumnLimit] = useState<Record<string, number>>({});
   const [, setTick] = useState(0);
   const supabase = useRef(createSupabaseBrowserClient());
+  const sessionStatusRef = useRef<SessionStatus>("active");
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 15_000);
@@ -233,9 +234,15 @@ export default function SessionPage({
   }, [params]);
 
   useEffect(() => {
+    sessionStatusRef.current = sessionStatus;
+  }, [sessionStatus]);
+
+  useEffect(() => {
     if (!sessionId) return;
     return () => {
-      stopSession(sessionId);
+      if (sessionStatusRef.current === "active") {
+        stopSession(sessionId);
+      }
     };
   }, [sessionId]);
 
