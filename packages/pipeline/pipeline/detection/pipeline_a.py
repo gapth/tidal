@@ -10,7 +10,7 @@ from typing import Optional
 
 from ..config import PipelineConfig
 from ..llm import complete
-from ..chat_types import Category, ChatMessage, Prompt, PromptSource
+from ..chat_types import Category, ChatMessage, Prompt, PromptSource, UsageDelta
 
 _SYSTEM = (
     "You are a real-time assistant for a YouTube live streamer. "
@@ -28,10 +28,10 @@ class PipelineA:
         window: list[ChatMessage],
         stream_start_ms: float,
         sweep_ts_ms: float,
-    ) -> Optional[Prompt]:
-        """Inspect window and return a Prompt if a novel high-signal question is found."""
+    ) -> tuple[Optional[Prompt], UsageDelta]:
+        """Inspect window and return (Prompt, UsageDelta); Prompt is None if nothing found."""
         if not window:
-            return None
+            return None, UsageDelta()
 
         window_s = self.config.sweep_window_s
         msg_lines = "\n".join(
@@ -51,19 +51,22 @@ class PipelineA:
             "If there is none worth surfacing, respond exactly: NONE"
         )
 
-        text, latency_ms = complete(
+        text, latency_ms, in_tok, out_tok = complete(
             system=_SYSTEM,
             user=user,
             model=self.config.model,
             max_tokens=120,
         )
 
+        delta = UsageDelta()
+        delta.add_llm(in_tok, out_tok)
+
         if not text or text.strip().upper() == "NONE":
-            return None
+            return None, delta
 
         question_text, action_text = _parse_response(text)
         if not action_text:
-            return None
+            return None, delta
 
         stream_time_s = (sweep_ts_ms - stream_start_ms) / 1000.0
         video_id = window[0].video_id if window else ""
@@ -79,7 +82,7 @@ class PipelineA:
             trigger_author_ids=[],
             trigger_texts=[question_text] if question_text else [],
             llm_latency_ms=latency_ms,
-        )
+        ), delta
 
 
 def _parse_response(text: str) -> tuple[str, str]:

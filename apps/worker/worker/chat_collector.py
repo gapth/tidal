@@ -16,7 +16,8 @@ from typing import Any, Callable
 
 import grpc
 
-from worker import stream_list_pb2, stream_list_pb2_grpc
+from pipeline.chat_types import UsageDelta
+from worker import db, stream_list_pb2, stream_list_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ def _get_live_chat_id(
 
 def _collect_blocking(
     video_id: str,
+    session_id: str,
     api_key: str,
     on_batch: Callable[[list[Any] | None], None],
     stop: threading.Event,
@@ -80,6 +82,7 @@ def _collect_blocking(
     if live_chat_id is None:
         on_batch(None)
         return
+    db.increment_session_usage(session_id, UsageDelta(yt_quota_units=1))
 
     creds = grpc.ssl_channel_credentials()
     next_page_token: str | None = None
@@ -181,7 +184,7 @@ async def collect(
     )
     try:
         await asyncio.to_thread(
-            _collect_blocking, video_id, api_key, on_message_batch, stop
+            _collect_blocking, video_id, session_id, api_key, on_message_batch, stop
         )
     except asyncio.CancelledError:
         stop.set()
