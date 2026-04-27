@@ -25,10 +25,8 @@ _MAX_RECONNECTS = 3
 _RECONNECT_BACKOFF_S = [5, 15, 30]
 _YT_GRPC_TARGET = "dns:///youtube.googleapis.com:443"
 _KEEPALIVE_OPTIONS = [
-    ("grpc.keepalive_time_ms", 20_000),
+    ("grpc.keepalive_time_ms", 60_000),
     ("grpc.keepalive_timeout_ms", 10_000),
-    ("grpc.keepalive_permit_without_calls", 1),
-    ("grpc.http2.max_pings_without_data", 0),
 ]
 
 
@@ -107,6 +105,7 @@ def _collect_blocking(
                 max_results=2000,
             )
             call = stub.StreamList(request, metadata=metadata)
+            db.increment_session_usage(session_id, UsageDelta(yt_quota_units=1))
 
             # Daemon thread cancels the gRPC call when stop is signalled
             threading.Thread(
