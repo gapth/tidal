@@ -53,6 +53,12 @@ _SYSTEM = (
 )
 
 
+def _format_debug_message(msg: ChatMessage) -> str:
+    author = (msg.author or "viewer").strip() or "viewer"
+    handle = author if author.startswith("@") else f"@{author}"
+    return f"{handle}: {msg.text}"
+
+
 class EnergySpikeDetector:
     """Fixed-bucket Z-score energy spike detector."""
 
@@ -287,6 +293,7 @@ class PipelineC:
             source=PromptSource.C,
             category=primary_category,
             text=text,
+            debug_context="\n".join(_format_debug_message(m) for m in top_msgs) or None,
             legible_reason=f"Heuristic(s) fired: {trigger_str}",
             stream_time_s=stream_time_s,
             emitted_at_ms=time.time() * 1000,

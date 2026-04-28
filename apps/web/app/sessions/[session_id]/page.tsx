@@ -11,6 +11,7 @@ type PromptRow = {
   source: string;
   category: string;
   content: string;
+  debug_context: string | null;
   dismissed: boolean;
   created_at: string;
 };
@@ -164,7 +165,7 @@ function CategoryColumn({
         return (
           <div
             key={p.id}
-            className={`bg-white rounded-lg border border-gray-200 px-3 py-2.5 ${isDismissed ? "opacity-50" : ""}`}
+            className={`group relative bg-white rounded-lg border border-gray-200 px-3 py-2.5 ${isDismissed ? "opacity-50" : ""}`}
           >
             <p className="text-sm text-gray-900 leading-snug mb-1.5">
               {p.content}
@@ -191,6 +192,11 @@ function CategoryColumn({
                 )}
               </div>
             </div>
+            {p.debug_context && (
+              <div className="pointer-events-none absolute left-3 right-3 top-full z-20 mt-2 hidden rounded-md border border-gray-200 bg-gray-950 px-3 py-2 text-xs leading-relaxed text-gray-100 shadow-lg whitespace-pre-wrap group-hover:block">
+                {p.debug_context}
+              </div>
+            )}
           </div>
         );
       })}

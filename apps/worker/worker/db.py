@@ -13,13 +13,20 @@ def get_client() -> Client:
     return _client
 
 
-def write_prompt(session_id: str, source: str, category: str, content: str) -> None:
+def write_prompt(
+    session_id: str,
+    source: str,
+    category: str,
+    content: str,
+    debug_context: str | None = None,
+) -> None:
     get_client().table("prompts").insert(
         {
             "session_id": session_id,
             "source": source,
             "category": category,
             "content": content,
+            "debug_context": debug_context,
         }
     ).execute()
 

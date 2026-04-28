@@ -74,7 +74,13 @@ async def run_session(video_id: str, session_id: str, stop_event: threading.Even
                 continue
             for p in prompts:
                 try:
-                    db.write_prompt(session_id, p.source.value, p.category.value, p.text)
+                    db.write_prompt(
+                        session_id,
+                        p.source.value,
+                        p.category.value,
+                        p.text,
+                        p.debug_context,
+                    )
                 except Exception as exc:
                     logger.warning("DB write error: %s", exc)
             if delta.llm_calls or delta.embedding_calls:

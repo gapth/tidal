@@ -19,6 +19,12 @@ _SYSTEM = (
 )
 
 
+def _format_debug_message(msg: ChatMessage) -> str:
+    author = (msg.author or "viewer").strip() or "viewer"
+    handle = author if author.startswith("@") else f"@{author}"
+    return f"{handle}: {msg.text}"
+
+
 class PipelineA:
     def __init__(self, config: PipelineConfig):
         self.config = config
@@ -75,6 +81,7 @@ class PipelineA:
             source=PromptSource.A,
             category=Category.NOVEL_QUESTION,
             text=action_text,
+            debug_context=_build_debug_context(window, question_text),
             legible_reason=f"Novel question detected by sweep: {question_text}",
             stream_time_s=stream_time_s,
             emitted_at_ms=time.time() * 1000,
@@ -99,3 +106,24 @@ def _parse_response(text: str) -> tuple[str, str]:
 def _fmt_time(ms_from_start: float) -> str:
     s = int(ms_from_start / 1000)
     return f"{s // 60:02d}:{s % 60:02d}"
+
+
+def _build_debug_context(window: list[ChatMessage], question_text: str) -> Optional[str]:
+    if not window:
+        return None
+
+    normalized_question = _normalize_message_text(question_text)
+    if normalized_question:
+        for msg in reversed(window):
+            normalized_msg = _normalize_message_text(msg.text)
+            if normalized_msg == normalized_question or normalized_question in normalized_msg:
+                return _format_debug_message(msg)
+
+    recent = window[-5:]
+    if not recent:
+        return None
+    return "Recent sweep context:\n" + "\n".join(_format_debug_message(msg) for msg in recent)
+
+
+def _normalize_message_text(text: str) -> str:
+    return " ".join(text.lower().strip().split())
