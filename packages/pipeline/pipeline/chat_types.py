@@ -63,6 +63,7 @@ class Prompt:
     source: PromptSource
     category: Category
     text: str
+    debug_context: Optional[str]
     legible_reason: str
     stream_time_s: float       # seconds from start of this stream
     emitted_at_ms: float       # wall-clock unix ms when emitted
