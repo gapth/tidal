@@ -1,12 +1,34 @@
 # Tidal
 
-Current status: proof of concept.
+**Status: Paused — April 2026**
 
 Tidal helps live creators understand what matters in YouTube chat right now and
 act on it in the moment. A creator signs in, pastes a YouTube livestream URL,
 and Tidal starts a worker that collects live chat, processes the stream with
 OpenAI-backed prompt logic, and sends high-signal prompt cards back to the
 creator UI in real time.
+
+## What I learned
+
+The technical thesis held up. A heuristic pre-filter + LLM pipeline (Pipeline C)
+hit p50 ~3.3s latency, 100% precision, 96.7% recall on hand-labeled moments —
+inside the 5-second target. The harder problem was prompt fatigue: Pipeline C
+fired ~1.4 prompts/min, against a product target of 3–6 per hour. Detecting the
+most valuable category — high-signal novel questions — required a separate
+periodic LLM sweep, since heuristics can't catch a first-instance question that
+isn't repeated or directed at the creator.
+
+The structural risks are harder. The true addressable market is small: after
+filtering for solo, chat-heavy YouTube creators without mod support, you're
+describing maybe 5,000–15,000 channels globally. The pain is real but
+low-urgency — creators have adapted to noisy chat and no career has ended from
+missing a question. Most critically, creators don't pay for tools; the entire
+ecosystem (OBS, StreamElements, Nightbot) is free, and without a clear
+monetization thesis the business math doesn't work even if the product does. The
+whole model also depends on YouTube's API staying accessible — an existential
+platform dependency. The meta-lesson: there was no named creator with a
+specific, painful memory of missing something important in chat. That person
+needed to exist before building anything.
 
 ## Why It Exists
 
